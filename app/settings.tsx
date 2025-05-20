@@ -16,11 +16,16 @@ export default function SettingsScreen() {
   const [timingCheckpoint, setTimingCheckpoint] = useState('');
   const [pacemakerMode, setPacemakerMode] = useState<PaceMakerMode>(DEFAULT_PACEMAKER_MODE as PaceMakerMode);
   const [currentSettings, setCurrentSettings] = useState<{
-    pollingInterval?: number;
-    feedbackInterval?: number;
-    timingCheckpoint?: number;
-    pacemakerMode?: PaceMakerMode;
-  }>({});
+    pollingInterval: number;
+    feedbackInterval: number;
+    timingCheckpoint: number;
+    pacemakerMode: PaceMakerMode;
+  }>({ 
+    pollingInterval: DEFAULT_POLLING_INTERVAL,
+    feedbackInterval: DEFAULT_FEEDBACK_INTERVAL,
+    timingCheckpoint: DEFAULT_TIMING_CHECKPOINT,
+    pacemakerMode: DEFAULT_PACEMAKER_MODE as PaceMakerMode
+  });
 
   const loadSettings = async () => {
     try {
@@ -34,11 +39,16 @@ export default function SettingsScreen() {
         setPacemakerMode((settings.pacemakerMode as PaceMakerMode) || DEFAULT_PACEMAKER_MODE as PaceMakerMode);
       } else {
         // Set default values if no settings exist
-        const defaultSettings = {
+        const defaultSettings: {
+          pollingInterval: number;
+          feedbackInterval: number;
+          timingCheckpoint: number;
+          pacemakerMode: PaceMakerMode;
+        } = {
           pollingInterval: DEFAULT_POLLING_INTERVAL,
           feedbackInterval: DEFAULT_FEEDBACK_INTERVAL,
           timingCheckpoint: DEFAULT_TIMING_CHECKPOINT,
-          pacemakerMode: DEFAULT_PACEMAKER_MODE
+          pacemakerMode: DEFAULT_PACEMAKER_MODE as PaceMakerMode
         };
         await AsyncStorage.setItem(SETTINGS_KEY, JSON.stringify(defaultSettings));
         setCurrentSettings(defaultSettings);
@@ -57,48 +67,42 @@ export default function SettingsScreen() {
   }, []);
 
   const saveSettings = async () => {
-    const polling = parseFloat(pollingInterval);
-    const feedback = parseFloat(feedbackInterval);
-    const checkpoint = parseFloat(timingCheckpoint);
+    const pollingNum = parseFloat(pollingInterval);
+    const feedbackNum = parseFloat(feedbackInterval);
+    const checkpointNum = parseFloat(timingCheckpoint);
 
-    // Validate all numeric inputs
-    if (isNaN(polling) || isNaN(feedback) || isNaN(checkpoint)) {
-      Alert.alert('Invalid input', 'Please enter valid numbers');
+    // Validate inputs
+    if (isNaN(pollingNum) || pollingNum <= 0) {
+      Alert.alert('Error', 'Polling interval must be greater than 0');
       return;
     }
 
-    // Validate polling interval
-    if (polling <= 0) {
-      Alert.alert('Invalid input', 'Polling interval must be greater than 0');
+    if (isNaN(feedbackNum) || feedbackNum <= 0) {
+      Alert.alert('Error', 'Feedback interval must be greater than 0');
       return;
     }
 
-    // Validate feedback interval
-    if (feedback <= 0) {
-      Alert.alert('Invalid input', 'Feedback interval must be greater than 0');
+    if (isNaN(checkpointNum) || checkpointNum < 0.1 || checkpointNum > 1) {
+      Alert.alert('Error', 'Timing checkpoint must be between 0.1 km and 1 km');
       return;
     }
 
-    // Validate timing checkpoint (between 0.1 and 1 km)
-    if (checkpoint < 0.1 || checkpoint > 1) {
-      Alert.alert('Invalid input', 'Timing checkpoint must be between 0.1 and 1 km');
-      return;
-    }
+    const newSettings: {
+      pollingInterval: number;
+      feedbackInterval: number;
+      timingCheckpoint: number;
+      pacemakerMode: PaceMakerMode;
+    } = {
+      pollingInterval: pollingNum,
+      feedbackInterval: feedbackNum,
+      timingCheckpoint: checkpointNum,
+      pacemakerMode
+    };
+
     try {
-      const newSettings: {
-        pollingInterval: number;
-        feedbackInterval: number;
-        timingCheckpoint: number;
-        pacemakerMode: PaceMakerMode;
-      } = {
-        pollingInterval: polling,
-        feedbackInterval: feedback,
-        timingCheckpoint: checkpoint,
-        pacemakerMode
-      };
       await AsyncStorage.setItem(SETTINGS_KEY, JSON.stringify(newSettings));
       setCurrentSettings(newSettings);
-      Alert.alert('Success', 'Settings saved');
+      Alert.alert('Success', 'Settings saved successfully');
     } catch (error) {
       Alert.alert('Error', 'Failed to save settings');
     }

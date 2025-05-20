@@ -1,15 +1,39 @@
-import React, { useEffect, useState, useRef } from 'react';
+import React, { useEffect, useRef, useState } from 'react';
 import { View, Text, StyleSheet, Alert } from 'react-native';
-import { useLocalSearchParams } from 'expo-router';
+import * as Speech from 'expo-speech';
+import { Stack, useLocalSearchParams } from 'expo-router';
 import AsyncStorage from '@react-native-async-storage/async-storage';
-import { paceFeedbackPhrases, PaceFeedbackType, PaceMakerMode } from '../constants/paceFeedbackPhrases';
+import { PaceMakerMode, PaceFeedbackType } from '../constants/paceFeedbackPhrases';
+import { paceFeedbackPhrases } from '../constants/paceFeedbackPhrases';
 
+const DEFAULT_POLLING_INTERVAL = 1000;
+const DEFAULT_FEEDBACK_INTERVAL = 0.5;
+const DEFAULT_TIMING_CHECKPOINT = 0.5;
 const SETTINGS_KEY = 'runSettings';
 
 export default function RunScreen() {
-  const params = useLocalSearchParams();
-  const targetDistance = params.targetDistance as string;
-  const targetTime = params.targetTime as string;
+  const { targetDistance, targetTime } = useLocalSearchParams<{ targetDistance: string, targetTime: string }>();
+  const targetDistNum = parseFloat(targetDistance);
+  const targetTimeNum = parseFloat(targetTime);
+  // Convert target pace from minutes/km to km/hour for easier calculations
+  const targetPaceKmPerHour = 60 / (targetTimeNum / targetDistNum);
+  // Convert to meters per second
+  const targetSpeedMps = targetPaceKmPerHour * 1000 / 3600;
+
+  const [elapsedSeconds, setElapsedSeconds] = useState(0);
+  const [currentDistance, setCurrentDistance] = useState(0);
+  const [currentPace, setCurrentPace] = useState(0);
+  const [feedback, setFeedback] = useState("Let's get started!");
+  const [checkpointFeedback, setCheckpointFeedback] = useState("");
+  const [pollingInterval, setPollingInterval] = useState(DEFAULT_POLLING_INTERVAL);
+  const [feedbackInterval, setFeedbackInterval] = useState(DEFAULT_FEEDBACK_INTERVAL);
+  const [timingCheckpoint, setTimingCheckpoint] = useState(DEFAULT_TIMING_CHECKPOINT);
+  const [pacemakerMode, setPacemakerMode] = useState<PaceMakerMode>('Neutral');
+  const [settingsReady, setSettingsReady] = useState(false);
+
+  const intervalRef = useRef<ReturnType<typeof setInterval>>(null);
+  const lastFeedbackDistanceRef = useRef<number>(0);
+  const lastCheckpointDistanceRef = useRef<number>(0);
 
   useEffect(() => {
     if (!targetDistance || !targetTime) {
@@ -17,40 +41,29 @@ export default function RunScreen() {
       return;
     }
 
-    const targetDistNum = parseFloat(targetDistance);
-    const targetTimeNum = parseFloat(targetTime);
-
     if (isNaN(targetDistNum) || isNaN(targetTimeNum) || targetDistNum <= 0 || targetTimeNum <= 0) {
       Alert.alert('Error', 'Invalid target distance or time values');
       return;
     }
   }, [targetDistance, targetTime]);
 
-  const targetDistNum = parseFloat(targetDistance);
-  const targetTimeNum = parseFloat(targetTime);
 
-  const DEFAULT_POLLING_INTERVAL = 5; // seconds
-  const DEFAULT_FEEDBACK_INTERVAL = 0.5; // km
-  const DEFAULT_TIMING_CHECKPOINT = 0.4; // km
 
-  const [settingsReady, setSettingsReady] = useState(false);
-  const [pollingInterval, setPollingInterval] = useState<number>(DEFAULT_POLLING_INTERVAL);
-  const [feedbackInterval, setFeedbackInterval] = useState<number>(DEFAULT_FEEDBACK_INTERVAL);
-  const [timingCheckpoint, setTimingCheckpoint] = useState<number>(DEFAULT_TIMING_CHECKPOINT);
+  // Initialize speech synthesis
+  useEffect(() => {
+    const initializeSpeech = async () => {
+      try {
+        await Speech.getAvailableVoicesAsync();
+      } catch (error) {
+        console.error('Speech initialization error:', error);
+        Alert.alert('Error', 'Failed to initialize speech synthesis');
+      }
+    };
 
-  const [elapsedSeconds, setElapsedSeconds] = useState(0);
-  const [currentDistance, setCurrentDistance] = useState(0);
-  const [feedback, setFeedback] = useState("Let's get started!");
-  const [checkpointFeedback, setCheckpointFeedback] = useState("");
+    initializeSpeech();
+  }, []);
 
-  const [pacemakerMode, setPacemakerMode] = useState<PaceMakerMode>('Neutral');
-  const lastFeedbackDistanceRef = useRef(0);
-  const lastCheckpointDistanceRef = useRef(0);
-  const intervalRef = useRef<NodeJS.Timeout | null>(null);
-
-  const targetPace = targetDistNum / (targetTimeNum * 60); // km per second
-  const currentPace = currentDistance / (elapsedSeconds || 1);
-
+  // Load settings
   useEffect(() => {
     (async () => {
       try {
@@ -70,70 +83,100 @@ export default function RunScreen() {
   }, []);
 
   useEffect(() => {
-    if (!settingsReady) return;
-
-    if (pollingInterval <= 0) {
-      Alert.alert('Error', 'Invalid polling interval');
+    if (!settingsReady || !pollingInterval || targetSpeedMps <= 0 || targetDistNum <= 0) {
       return;
     }
 
-    if (intervalRef.current) clearInterval(intervalRef.current);
-
+    // Convert polling interval from seconds to milliseconds
+    const pollingMs = pollingInterval * 1000;
+    
     intervalRef.current = setInterval(() => {
-      setElapsedSeconds(prev => prev + pollingInterval);
-      setCurrentDistance(prevDist => {
-        const randomFactor = 0.8 + Math.random() * 0.4;
-        const newDist = prevDist + randomFactor * targetPace * pollingInterval;
+      setElapsedSeconds((prev: number) => prev + 1);
+      setCurrentDistance((prevDist: number) => {
+        // Convert meters to kilometers
+        const distanceIncrement = targetSpeedMps / 1000;
+        const newDist = prevDist + distanceIncrement;
         return Math.min(newDist, targetDistNum);
       });
-    }, pollingInterval * 1000);
+    }, 1000); // Update every second
 
     return () => {
-      if (intervalRef.current) clearInterval(intervalRef.current);
+      if (intervalRef.current) {
+        clearInterval(intervalRef.current);
+      }
     };
-  }, [settingsReady, pollingInterval, targetPace, targetDistNum]);
+  }, [settingsReady, pollingInterval, targetSpeedMps, targetDistNum]);
 
   useEffect(() => {
-    let paceType: PaceFeedbackType;
-    const paceDiff = Math.abs(currentPace - targetPace);
+    const updateFeedback = async () => {
+      let paceType: PaceFeedbackType;
+      // Calculate current speed in km/h
+      const currentSpeedKmh = (currentDistance / (elapsedSeconds / 3600));
+      const targetSpeedKmh = targetPaceKmPerHour;
+      const speedDiff = Math.abs(currentSpeedKmh - targetSpeedKmh);
 
-    if (paceDiff < 0.0005) {
-      paceType = 'onPace';
-    } else if (currentPace < targetPace) {
-      paceType = 'behind';
-    } else {
-      paceType = 'ahead';
-    }
-
-    const paceMessage = getRandomFeedback(pacemakerMode, paceType);
-    setFeedback(paceMessage);
-
-    if (currentDistance - lastFeedbackDistanceRef.current >= feedbackInterval) {
-      lastFeedbackDistanceRef.current = currentDistance;
-      Alert.alert('Run Feedback', paceMessage);
-    }
-
-    const nextCheckpoint = Math.floor(currentDistance / timingCheckpoint) * timingCheckpoint;
-    if (nextCheckpoint > lastCheckpointDistanceRef.current) {
-      lastCheckpointDistanceRef.current = nextCheckpoint;
-
-      const expectedTimeForCheckpoint = (nextCheckpoint / targetPace) / 60;
-      const actualTimeForCheckpoint = elapsedSeconds / 60;
-      const timeDifference = actualTimeForCheckpoint - expectedTimeForCheckpoint;
-
-      let checkpointMessage = '';
-      if (Math.abs(timeDifference) < 0.5) {
-        checkpointMessage = `${nextCheckpoint.toFixed(1)}km - Perfect timing! Keep this pace!`;
-      } else if (timeDifference > 0) {
-        checkpointMessage = `${nextCheckpoint.toFixed(1)}km - Speed up! ${timeDifference.toFixed(1)} minutes behind.`;
+      if (speedDiff < 0.5) { // Allow 0.5 km/h difference
+        paceType = 'onPace';
+      } else if (currentSpeedKmh < targetSpeedKmh) {
+        paceType = 'behind';
       } else {
-        checkpointMessage = `${nextCheckpoint.toFixed(1)}km - Great pace! ${Math.abs(timeDifference).toFixed(1)} minutes ahead!`;
+        paceType = 'ahead';
       }
 
-      setCheckpointFeedback(checkpointMessage);
-      Alert.alert('Checkpoint', checkpointMessage);
-    }
-  }, [currentDistance, elapsedSeconds, feedbackInterval, timingCheckpoint, targetPace, pacemakerMode]);
+      // Give feedback every feedbackInterval kilometers
+      const nextFeedbackDistance = Math.floor(currentDistance / feedbackInterval) * feedbackInterval;
+      if (nextFeedbackDistance > lastFeedbackDistanceRef.current && nextFeedbackDistance > 0) {
+        lastFeedbackDistanceRef.current = nextFeedbackDistance;
+        
+        // Get new feedback message
+        const paceMessage = getRandomFeedback(pacemakerMode, paceType);
+        
+        try {
+          await Speech.stop();
+          // Only update display when we're about to speak
+          setFeedback(paceMessage);
+          await Speech.speak(paceMessage, {
+            language: 'en-US',
+            pitch: 1.2,    // Slightly higher pitch (normal is 1.0)
+            rate: 0.9,     // Slightly slower rate (normal is 1.0)
+            volume: 1.0    // Maximum volume
+          });
+        } catch (error) {
+          console.error('Speech synthesis error:', error);
+        }
+      }
+
+      // Check if we've hit a new timing checkpoint
+      const nextCheckpoint = Math.floor(currentDistance / timingCheckpoint) * timingCheckpoint;
+      if (nextCheckpoint > lastCheckpointDistanceRef.current && nextCheckpoint > 0) {
+        lastCheckpointDistanceRef.current = nextCheckpoint;
+
+        // Format elapsed time into minutes and seconds
+        const minutes = Math.floor(elapsedSeconds / 60);
+        const seconds = Math.floor(elapsedSeconds % 60);
+        const timeStr = `${minutes}:${seconds.toString().padStart(2, '0')}`;
+        
+        // Announce distance and elapsed time
+        const checkpointMessage = `${nextCheckpoint.toFixed(1)} kilometers completed! Time elapsed: ${timeStr}`;
+        
+        try {
+          await Speech.stop();
+          // Only update display when we're about to speak
+          setCheckpointFeedback(checkpointMessage);
+          await Speech.speak(checkpointMessage, {
+            language: 'en-US',
+            pitch: 1.0,     // Normal pitch for checkpoints
+            rate: 0.9,      // Slightly slower for clarity
+            volume: 1.0     // Maximum volume
+          });
+        } catch (error) {
+          console.error('Speech synthesis error:', error);
+        }
+      }
+    };
+
+    updateFeedback();
+  }, [currentDistance, elapsedSeconds, feedbackInterval, timingCheckpoint, targetPaceKmPerHour, pacemakerMode]);
 
   function getRandomFeedback(mode: PaceMakerMode, type: PaceFeedbackType): string {
     const messages = paceFeedbackPhrases[mode][type];
