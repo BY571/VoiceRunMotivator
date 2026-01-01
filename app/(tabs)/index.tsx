@@ -3,12 +3,24 @@ import { View, Text, TextInput, StyleSheet, Alert, Pressable } from 'react-nativ
 import { useRouter, Link } from 'expo-router';
 import FontAwesome from '@expo/vector-icons/FontAwesome';
 
+const COLORS = {
+  background: '#0D0D0D',
+  cardBg: '#1A1A1A',
+  cardBorder: '#2A2A2A',
+  accent: '#00D4AA',
+  accentDim: '#00A888',
+  text: '#FFFFFF',
+  textSecondary: '#8A8A8A',
+  textMuted: '#4A4A4A',
+  inputBg: '#141414',
+  danger: '#FF4757',
+};
+
 export default function GoalSetupScreen() {
   const router = useRouter();
   const [distance, setDistance] = useState('');
   const [time, setTime] = useState('');
 
-  // Calculate target pace when inputs change
   const targetPace = useMemo(() => {
     const distVal = parseFloat(distance);
     const timeVal = parseFloat(time);
@@ -49,65 +61,87 @@ export default function GoalSetupScreen() {
 
   return (
     <View style={styles.container}>
-      {/* Settings Button */}
-      <Link href="/settings" asChild>
-        <Pressable style={styles.settingsButton}>
-          <FontAwesome name="gear" size={24} color="#888" />
-        </Pressable>
-      </Link>
-
-      <Text style={styles.title}>Pacemaker</Text>
-      <Text style={styles.subtitle}>Set your running goal</Text>
-
-      {/* Target Pace Display */}
-      <View style={styles.paceContainer}>
-        <Text style={styles.paceLabel}>Target Pace</Text>
-        <Text style={styles.paceValue}>
-          {targetPace ? `${targetPace} /km` : '-- /km'}
-        </Text>
+      {/* Header */}
+      <View style={styles.header}>
+        <View style={styles.logoContainer}>
+          <Text style={styles.logoIcon}>P</Text>
+        </View>
+        <Link href="/settings" asChild>
+          <Pressable style={styles.settingsButton}>
+            <FontAwesome name="cog" size={22} color={COLORS.textSecondary} />
+          </Pressable>
+        </Link>
       </View>
 
-      {/* Input Fields */}
-      <View style={styles.inputContainer}>
-        <View style={styles.inputGroup}>
-          <Text style={styles.label}>Distance</Text>
-          <View style={styles.inputWrapper}>
+      <Text style={styles.title}>PACEMAKER</Text>
+      <Text style={styles.subtitle}>Set your goal. Own your pace.</Text>
+
+      {/* Target Pace Card */}
+      <View style={styles.paceCard}>
+        <Text style={styles.paceLabel}>TARGET PACE</Text>
+        <View style={styles.paceValueRow}>
+          <Text style={[styles.paceValue, !targetPace && styles.paceValueDim]}>
+            {targetPace || '--:--'}
+          </Text>
+          <Text style={styles.paceUnit}>/km</Text>
+        </View>
+        <View style={styles.paceIndicator}>
+          <View style={[styles.paceIndicatorBar, targetPace && styles.paceIndicatorActive]} />
+        </View>
+      </View>
+
+      {/* Input Cards */}
+      <View style={styles.inputRow}>
+        <View style={styles.inputCard}>
+          <Text style={styles.inputLabel}>DISTANCE</Text>
+          <View style={styles.inputInner}>
             <TextInput
               style={styles.input}
               keyboardType="decimal-pad"
               value={distance}
               onChangeText={setDistance}
               placeholder="5.0"
-              placeholderTextColor="#555"
+              placeholderTextColor={COLORS.textMuted}
             />
-            <Text style={styles.unit}>km</Text>
+            <Text style={styles.inputUnit}>km</Text>
           </View>
         </View>
 
-        <View style={styles.inputGroup}>
-          <Text style={styles.label}>Time</Text>
-          <View style={styles.inputWrapper}>
+        <View style={styles.inputCard}>
+          <Text style={styles.inputLabel}>TIME</Text>
+          <View style={styles.inputInner}>
             <TextInput
               style={styles.input}
               keyboardType="decimal-pad"
               value={time}
               onChangeText={setTime}
               placeholder="25"
-              placeholderTextColor="#555"
+              placeholderTextColor={COLORS.textMuted}
             />
-            <Text style={styles.unit}>min</Text>
+            <Text style={styles.inputUnit}>min</Text>
           </View>
         </View>
       </View>
 
       {/* Start Button */}
-      <Pressable
-        style={[styles.startButton, !targetPace && styles.startButtonDisabled]}
-        onPress={startRun}
-        disabled={!targetPace}
-      >
-        <Text style={styles.startButtonText}>START RUN</Text>
-      </Pressable>
+      <View style={styles.buttonContainer}>
+        <Pressable
+          style={({ pressed }) => [
+            styles.startButton,
+            !targetPace && styles.startButtonDisabled,
+            pressed && targetPace && styles.startButtonPressed,
+          ]}
+          onPress={startRun}
+          disabled={!targetPace}
+        >
+          <Text style={[styles.startButtonText, !targetPace && styles.startButtonTextDisabled]}>
+            START RUN
+          </Text>
+          {targetPace && (
+            <FontAwesome name="arrow-right" size={18} color={COLORS.background} style={styles.startButtonIcon} />
+          )}
+        </Pressable>
+      </View>
     </View>
   );
 }
@@ -115,98 +149,174 @@ export default function GoalSetupScreen() {
 const styles = StyleSheet.create({
   container: {
     flex: 1,
-    padding: 24,
-    backgroundColor: '#1a1a2e',
+    backgroundColor: COLORS.background,
+    paddingHorizontal: 24,
     paddingTop: 60,
   },
+  header: {
+    flexDirection: 'row',
+    justifyContent: 'space-between',
+    alignItems: 'center',
+    marginBottom: 32,
+  },
+  logoContainer: {
+    width: 44,
+    height: 44,
+    borderRadius: 12,
+    backgroundColor: COLORS.accent,
+    justifyContent: 'center',
+    alignItems: 'center',
+  },
+  logoIcon: {
+    fontSize: 24,
+    fontWeight: '800',
+    color: COLORS.background,
+  },
   settingsButton: {
-    position: 'absolute',
-    top: 60,
-    right: 24,
-    padding: 8,
-    zIndex: 1,
+    width: 44,
+    height: 44,
+    borderRadius: 12,
+    backgroundColor: COLORS.cardBg,
+    justifyContent: 'center',
+    alignItems: 'center',
   },
   title: {
-    fontSize: 36,
-    fontWeight: 'bold',
-    color: '#fff',
+    fontSize: 32,
+    fontWeight: '800',
+    color: COLORS.text,
     textAlign: 'center',
-    marginTop: 20,
+    letterSpacing: 4,
   },
   subtitle: {
-    fontSize: 16,
-    color: '#888',
+    fontSize: 14,
+    color: COLORS.textSecondary,
     textAlign: 'center',
     marginTop: 8,
     marginBottom: 40,
+    letterSpacing: 1,
   },
-  paceContainer: {
-    alignItems: 'center',
-    marginBottom: 50,
-    paddingVertical: 30,
-    backgroundColor: '#2a2a4e',
-    borderRadius: 16,
+  paceCard: {
+    backgroundColor: COLORS.cardBg,
+    borderRadius: 20,
+    padding: 28,
+    marginBottom: 24,
+    borderWidth: 1,
+    borderColor: COLORS.cardBorder,
   },
   paceLabel: {
-    fontSize: 14,
-    color: '#888',
-    marginBottom: 8,
-    textTransform: 'uppercase',
-    letterSpacing: 1,
+    fontSize: 12,
+    color: COLORS.textSecondary,
+    fontWeight: '600',
+    letterSpacing: 2,
+    marginBottom: 12,
+  },
+  paceValueRow: {
+    flexDirection: 'row',
+    alignItems: 'baseline',
+    justifyContent: 'center',
   },
   paceValue: {
-    fontSize: 48,
-    fontWeight: 'bold',
-    color: '#2196F3',
+    fontSize: 64,
+    fontWeight: '700',
+    color: COLORS.accent,
     fontVariant: ['tabular-nums'],
   },
-  inputContainer: {
+  paceValueDim: {
+    color: COLORS.textMuted,
+  },
+  paceUnit: {
+    fontSize: 20,
+    color: COLORS.textSecondary,
+    marginLeft: 8,
+    fontWeight: '500',
+  },
+  paceIndicator: {
+    marginTop: 20,
+    height: 4,
+    backgroundColor: COLORS.cardBorder,
+    borderRadius: 2,
+    overflow: 'hidden',
+  },
+  paceIndicatorBar: {
+    width: '0%',
+    height: '100%',
+    backgroundColor: COLORS.textMuted,
+    borderRadius: 2,
+  },
+  paceIndicatorActive: {
+    width: '100%',
+    backgroundColor: COLORS.accent,
+  },
+  inputRow: {
     flexDirection: 'row',
     gap: 16,
-    marginBottom: 40,
+    marginBottom: 32,
   },
-  inputGroup: {
+  inputCard: {
     flex: 1,
+    backgroundColor: COLORS.cardBg,
+    borderRadius: 16,
+    padding: 16,
+    borderWidth: 1,
+    borderColor: COLORS.cardBorder,
   },
-  label: {
-    fontSize: 14,
-    color: '#888',
+  inputLabel: {
+    fontSize: 11,
+    color: COLORS.textSecondary,
+    fontWeight: '600',
+    letterSpacing: 1.5,
     marginBottom: 8,
-    textTransform: 'uppercase',
-    letterSpacing: 1,
   },
-  inputWrapper: {
+  inputInner: {
     flexDirection: 'row',
     alignItems: 'center',
-    backgroundColor: '#2a2a4e',
-    borderRadius: 12,
-    paddingRight: 16,
   },
   input: {
     flex: 1,
-    height: 60,
-    paddingHorizontal: 16,
-    fontSize: 24,
-    color: '#fff',
-    fontWeight: '600',
+    fontSize: 32,
+    fontWeight: '700',
+    color: COLORS.text,
+    paddingVertical: 8,
+    paddingHorizontal: 4,
+    minHeight: 48,
   },
-  unit: {
+  inputUnit: {
     fontSize: 16,
-    color: '#888',
+    color: COLORS.textSecondary,
+    fontWeight: '500',
+  },
+  buttonContainer: {
+    flex: 1,
+    justifyContent: 'flex-end',
+    paddingBottom: 40,
   },
   startButton: {
-    backgroundColor: '#4CAF50',
+    backgroundColor: COLORS.accent,
     paddingVertical: 20,
-    borderRadius: 12,
+    borderRadius: 16,
+    flexDirection: 'row',
     alignItems: 'center',
+    justifyContent: 'center',
+  },
+  startButtonPressed: {
+    backgroundColor: COLORS.accentDim,
+    transform: [{ scale: 0.98 }],
   },
   startButtonDisabled: {
-    backgroundColor: '#333',
+    backgroundColor: COLORS.cardBg,
+    borderWidth: 1,
+    borderColor: COLORS.cardBorder,
   },
   startButtonText: {
-    color: '#fff',
-    fontSize: 20,
-    fontWeight: 'bold',
-    letterSpacing: 1,
+    color: COLORS.background,
+    fontSize: 18,
+    fontWeight: '700',
+    letterSpacing: 2,
+  },
+  startButtonTextDisabled: {
+    color: COLORS.textMuted,
+  },
+  startButtonIcon: {
+    marginLeft: 12,
   },
 });

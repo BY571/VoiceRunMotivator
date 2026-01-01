@@ -4,6 +4,7 @@ import * as Speech from 'expo-speech';
 import { useLocalSearchParams, useRouter } from 'expo-router';
 import AsyncStorage from '@react-native-async-storage/async-storage';
 import { activateKeepAwakeAsync, deactivateKeepAwake } from 'expo-keep-awake';
+import FontAwesome from '@expo/vector-icons/FontAwesome';
 
 import { LocationPoint, RunSettings, DEFAULT_SETTINGS, SETTINGS_KEY } from '../types/location';
 import {
@@ -21,6 +22,23 @@ import {
   getCurrentLocation,
 } from '../utils/locationService';
 import { getRandomFeedback, PaceFeedbackType } from '../constants/paceFeedbackPhrases';
+
+const COLORS = {
+  background: '#0D0D0D',
+  cardBg: '#1A1A1A',
+  cardBorder: '#2A2A2A',
+  accent: '#00D4AA',
+  accentDim: '#00A888',
+  text: '#FFFFFF',
+  textSecondary: '#8A8A8A',
+  textMuted: '#4A4A4A',
+  success: '#00D4AA',
+  warning: '#FFB800',
+  danger: '#FF4757',
+  ahead: '#00D4AA',
+  behind: '#FF4757',
+  onPace: '#00D4AA',
+};
 
 type RunState = 'waiting' | 'running' | 'paused' | 'finished';
 
@@ -81,14 +99,31 @@ export default function RunScreen() {
   }, [targetDistance, targetTime]);
 
   // Keep screen awake during run
+  const keepAwakeActiveRef = useRef(false);
   useEffect(() => {
     if (runState === 'running') {
-      activateKeepAwakeAsync();
-    } else {
-      deactivateKeepAwake();
+      activateKeepAwakeAsync().then(() => {
+        keepAwakeActiveRef.current = true;
+      }).catch(() => {
+        // Ignore errors on web
+      });
+    } else if (keepAwakeActiveRef.current) {
+      try {
+        deactivateKeepAwake();
+        keepAwakeActiveRef.current = false;
+      } catch {
+        // Ignore errors on web
+      }
     }
     return () => {
-      deactivateKeepAwake();
+      if (keepAwakeActiveRef.current) {
+        try {
+          deactivateKeepAwake();
+          keepAwakeActiveRef.current = false;
+        } catch {
+          // Ignore errors on web
+        }
+      }
     };
   }, [runState]);
 
@@ -295,55 +330,84 @@ export default function RunScreen() {
     router.back();
   }, [router]);
 
-  // Calculate current pace
+  // Calculate current pace and pace status
   const currentPace = calculatePaceMinPerKm(totalDistance, elapsedSeconds);
   const progressPercent = Math.min((totalDistance / targetDistNum) * 100, 100);
 
+  // Determine pace status for visual feedback
+  const getPaceStatus = (): 'ahead' | 'onPace' | 'behind' => {
+    if (!currentPace) return 'onPace';
+    const paceDiff = currentPace - targetPaceMinPerKm;
+    if (Math.abs(paceDiff) < 0.1) return 'onPace';
+    return paceDiff > 0 ? 'behind' : 'ahead';
+  };
+  const paceStatus = getPaceStatus();
+
   return (
     <View style={styles.container}>
-      {/* GPS Status */}
-      <View style={[styles.gpsIndicator, styles[`gps_${gpsStatus}`]]}>
-        <Text style={styles.gpsText}>
-          GPS: {gpsStatus === 'searching' ? 'Searching...' : gpsStatus === 'acquired' ? 'OK' : 'Poor Signal'}
-        </Text>
-      </View>
-
-      {/* Main Stats */}
-      <View style={styles.statsContainer}>
-        <View style={styles.mainStat}>
-          <Text style={styles.mainStatValue}>{totalDistance.toFixed(2)}</Text>
-          <Text style={styles.mainStatLabel}>km</Text>
-        </View>
-
-        <View style={styles.secondaryStats}>
-          <View style={styles.stat}>
-            <Text style={styles.statValue}>{formatElapsedTime(elapsedSeconds)}</Text>
-            <Text style={styles.statLabel}>Time</Text>
-          </View>
-          <View style={styles.stat}>
-            <Text style={styles.statValue}>{formatPace(currentPace)}</Text>
-            <Text style={styles.statLabel}>Pace (min/km)</Text>
-          </View>
-        </View>
-
-        <View style={styles.targetInfo}>
-          <Text style={styles.targetText}>
-            Target: {targetDistNum} km in {targetTimeNum} min ({formatPace(targetPaceMinPerKm)} /km)
+      {/* Header with GPS Status */}
+      <View style={styles.header}>
+        <View style={[styles.gpsIndicator, styles[`gps_${gpsStatus}`]]}>
+          <View style={[styles.gpsDot, styles[`gpsDot_${gpsStatus}`]]} />
+          <Text style={styles.gpsText}>
+            {gpsStatus === 'searching' ? 'GPS' : gpsStatus === 'acquired' ? 'GPS' : 'GPS'}
           </Text>
         </View>
-
-        {/* Progress Bar */}
-        <View style={styles.progressContainer}>
-          <View style={styles.progressBar}>
-            <View style={[styles.progressFill, { width: `${progressPercent}%` }]} />
-          </View>
-          <Text style={styles.progressText}>{progressPercent.toFixed(0)}%</Text>
+        <View style={styles.targetBadge}>
+          <Text style={styles.targetBadgeText}>{formatPace(targetPaceMinPerKm)}/km</Text>
         </View>
       </View>
+
+      {/* Main Distance Display */}
+      <View style={styles.mainMetric}>
+        <Text style={styles.mainMetricValue}>{totalDistance.toFixed(2)}</Text>
+        <Text style={styles.mainMetricUnit}>kilometers</Text>
+      </View>
+
+      {/* Progress Ring/Bar */}
+      <View style={styles.progressSection}>
+        <View style={styles.progressBar}>
+          <View style={[styles.progressFill, { width: `${progressPercent}%` }]} />
+        </View>
+        <View style={styles.progressLabels}>
+          <Text style={styles.progressPercent}>{progressPercent.toFixed(0)}%</Text>
+          <Text style={styles.progressTarget}>{targetDistNum} km goal</Text>
+        </View>
+      </View>
+
+      {/* Stats Grid */}
+      <View style={styles.statsGrid}>
+        <View style={styles.statCard}>
+          <FontAwesome name="clock-o" size={18} color={COLORS.textSecondary} />
+          <Text style={styles.statValue}>{formatElapsedTime(elapsedSeconds)}</Text>
+          <Text style={styles.statLabel}>TIME</Text>
+        </View>
+        <View style={[styles.statCard, styles.statCardAccent]}>
+          <FontAwesome name="tachometer" size={18} color={COLORS[paceStatus]} />
+          <Text style={[styles.statValue, { color: COLORS[paceStatus] }]}>
+            {formatPace(currentPace)}
+          </Text>
+          <Text style={styles.statLabel}>PACE /KM</Text>
+        </View>
+      </View>
+
+      {/* Pace Status Indicator */}
+      {runState === 'running' && currentPace && (
+        <View style={[styles.paceStatusCard, styles[`paceStatus_${paceStatus}`]]}>
+          <FontAwesome
+            name={paceStatus === 'ahead' ? 'arrow-up' : paceStatus === 'behind' ? 'arrow-down' : 'check'}
+            size={20}
+            color={COLORS[paceStatus]}
+          />
+          <Text style={[styles.paceStatusText, { color: COLORS[paceStatus] }]}>
+            {paceStatus === 'ahead' ? 'Ahead of pace' : paceStatus === 'behind' ? 'Behind pace' : 'On target'}
+          </Text>
+        </View>
+      )}
 
       {/* Feedback Display */}
       {lastFeedback && (
-        <View style={styles.feedbackContainer}>
+        <View style={styles.feedbackCard}>
           <Text style={styles.feedbackText}>{lastFeedback}</Text>
         </View>
       )}
@@ -351,20 +415,32 @@ export default function RunScreen() {
       {/* Action Buttons */}
       <View style={styles.buttonContainer}>
         {runState === 'waiting' && (
-          <Pressable style={styles.startButton} onPress={handleStartRun}>
+          <Pressable
+            style={({ pressed }) => [styles.startButton, pressed && styles.buttonPressed]}
+            onPress={handleStartRun}
+          >
+            <FontAwesome name="play" size={20} color={COLORS.background} />
             <Text style={styles.startButtonText}>START RUN</Text>
           </Pressable>
         )}
 
         {runState === 'running' && (
-          <Pressable style={styles.stopButton} onPress={handleStopRun}>
+          <Pressable
+            style={({ pressed }) => [styles.stopButton, pressed && styles.stopButtonPressed]}
+            onPress={handleStopRun}
+          >
+            <FontAwesome name="stop" size={18} color="#FFF" />
             <Text style={styles.stopButtonText}>STOP</Text>
           </Pressable>
         )}
 
         {runState === 'finished' && (
-          <Pressable style={styles.backButton} onPress={handleGoBack}>
-            <Text style={styles.backButtonText}>BACK TO HOME</Text>
+          <Pressable
+            style={({ pressed }) => [styles.backButton, pressed && styles.buttonPressed]}
+            onPress={handleGoBack}
+          >
+            <Text style={styles.backButtonText}>DONE</Text>
+            <FontAwesome name="check" size={18} color={COLORS.background} />
           </Pressable>
         )}
       </View>
@@ -375,145 +451,234 @@ export default function RunScreen() {
 const styles = StyleSheet.create({
   container: {
     flex: 1,
-    backgroundColor: '#1a1a2e',
-    padding: 20,
+    backgroundColor: COLORS.background,
+    paddingHorizontal: 24,
     paddingTop: 60,
   },
+  header: {
+    flexDirection: 'row',
+    justifyContent: 'space-between',
+    alignItems: 'center',
+    marginBottom: 24,
+  },
   gpsIndicator: {
+    flexDirection: 'row',
+    alignItems: 'center',
     paddingHorizontal: 12,
-    paddingVertical: 6,
-    borderRadius: 16,
-    alignSelf: 'flex-end',
-    marginBottom: 20,
+    paddingVertical: 8,
+    borderRadius: 20,
+    backgroundColor: COLORS.cardBg,
+    gap: 8,
   },
-  gps_searching: {
-    backgroundColor: '#ffa500',
+  gpsDot: {
+    width: 8,
+    height: 8,
+    borderRadius: 4,
   },
-  gps_acquired: {
-    backgroundColor: '#4CAF50',
+  gpsDot_searching: {
+    backgroundColor: COLORS.warning,
   },
-  gps_poor: {
-    backgroundColor: '#f44336',
+  gpsDot_acquired: {
+    backgroundColor: COLORS.success,
   },
+  gpsDot_poor: {
+    backgroundColor: COLORS.danger,
+  },
+  gps_searching: {},
+  gps_acquired: {},
+  gps_poor: {},
   gpsText: {
-    color: '#fff',
+    color: COLORS.textSecondary,
     fontSize: 12,
     fontWeight: '600',
+    letterSpacing: 1,
   },
-  statsContainer: {
-    flex: 1,
-    justifyContent: 'center',
+  targetBadge: {
+    paddingHorizontal: 14,
+    paddingVertical: 8,
+    borderRadius: 20,
+    backgroundColor: COLORS.cardBg,
+    borderWidth: 1,
+    borderColor: COLORS.accent,
   },
-  mainStat: {
+  targetBadgeText: {
+    color: COLORS.accent,
+    fontSize: 13,
+    fontWeight: '700',
+  },
+  mainMetric: {
     alignItems: 'center',
-    marginBottom: 30,
+    marginBottom: 24,
   },
-  mainStatValue: {
-    fontSize: 80,
-    fontWeight: 'bold',
-    color: '#fff',
+  mainMetricValue: {
+    fontSize: 96,
+    fontWeight: '200',
+    color: COLORS.text,
     fontVariant: ['tabular-nums'],
+    letterSpacing: -4,
   },
-  mainStatLabel: {
-    fontSize: 24,
-    color: '#888',
-    marginTop: -10,
+  mainMetricUnit: {
+    fontSize: 16,
+    color: COLORS.textSecondary,
+    letterSpacing: 3,
+    textTransform: 'uppercase',
+    marginTop: -8,
   },
-  secondaryStats: {
-    flexDirection: 'row',
-    justifyContent: 'space-around',
-    marginBottom: 30,
-  },
-  stat: {
-    alignItems: 'center',
-  },
-  statValue: {
-    fontSize: 32,
-    fontWeight: '600',
-    color: '#fff',
-    fontVariant: ['tabular-nums'],
-  },
-  statLabel: {
-    fontSize: 14,
-    color: '#888',
-    marginTop: 4,
-  },
-  targetInfo: {
-    alignItems: 'center',
-    marginBottom: 20,
-  },
-  targetText: {
-    fontSize: 14,
-    color: '#888',
-  },
-  progressContainer: {
-    flexDirection: 'row',
-    alignItems: 'center',
-    gap: 10,
+  progressSection: {
+    marginBottom: 28,
   },
   progressBar: {
-    flex: 1,
-    height: 8,
-    backgroundColor: '#333',
-    borderRadius: 4,
+    height: 6,
+    backgroundColor: COLORS.cardBorder,
+    borderRadius: 3,
     overflow: 'hidden',
   },
   progressFill: {
     height: '100%',
-    backgroundColor: '#2196F3',
+    backgroundColor: COLORS.accent,
+    borderRadius: 3,
   },
-  progressText: {
-    color: '#888',
+  progressLabels: {
+    flexDirection: 'row',
+    justifyContent: 'space-between',
+    marginTop: 10,
+  },
+  progressPercent: {
+    color: COLORS.accent,
     fontSize: 14,
-    width: 40,
-    textAlign: 'right',
+    fontWeight: '700',
   },
-  feedbackContainer: {
-    backgroundColor: '#2196F3',
-    padding: 16,
-    borderRadius: 12,
+  progressTarget: {
+    color: COLORS.textMuted,
+    fontSize: 13,
+  },
+  statsGrid: {
+    flexDirection: 'row',
+    gap: 16,
     marginBottom: 20,
   },
+  statCard: {
+    flex: 1,
+    backgroundColor: COLORS.cardBg,
+    borderRadius: 16,
+    padding: 20,
+    alignItems: 'center',
+    borderWidth: 1,
+    borderColor: COLORS.cardBorder,
+    gap: 8,
+  },
+  statCardAccent: {
+    borderColor: COLORS.cardBorder,
+  },
+  statValue: {
+    fontSize: 28,
+    fontWeight: '700',
+    color: COLORS.text,
+    fontVariant: ['tabular-nums'],
+  },
+  statLabel: {
+    fontSize: 11,
+    color: COLORS.textSecondary,
+    fontWeight: '600',
+    letterSpacing: 1,
+  },
+  paceStatusCard: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    justifyContent: 'center',
+    gap: 10,
+    paddingVertical: 14,
+    paddingHorizontal: 20,
+    borderRadius: 12,
+    backgroundColor: COLORS.cardBg,
+    marginBottom: 16,
+  },
+  paceStatus_ahead: {
+    borderWidth: 1,
+    borderColor: COLORS.ahead,
+  },
+  paceStatus_behind: {
+    borderWidth: 1,
+    borderColor: COLORS.behind,
+  },
+  paceStatus_onPace: {
+    borderWidth: 1,
+    borderColor: COLORS.onPace,
+  },
+  paceStatusText: {
+    fontSize: 15,
+    fontWeight: '600',
+  },
+  feedbackCard: {
+    backgroundColor: COLORS.cardBg,
+    borderWidth: 1,
+    borderColor: COLORS.accent,
+    padding: 18,
+    borderRadius: 14,
+    marginBottom: 16,
+  },
   feedbackText: {
-    color: '#fff',
-    fontSize: 18,
+    color: COLORS.accent,
+    fontSize: 16,
     fontWeight: '600',
     textAlign: 'center',
+    lineHeight: 22,
   },
   buttonContainer: {
+    flex: 1,
+    justifyContent: 'flex-end',
     paddingBottom: 40,
   },
   startButton: {
-    backgroundColor: '#4CAF50',
+    backgroundColor: COLORS.accent,
     paddingVertical: 20,
-    borderRadius: 12,
+    borderRadius: 16,
+    flexDirection: 'row',
     alignItems: 'center',
+    justifyContent: 'center',
+    gap: 12,
+  },
+  buttonPressed: {
+    opacity: 0.9,
+    transform: [{ scale: 0.98 }],
   },
   startButtonText: {
-    color: '#fff',
-    fontSize: 24,
-    fontWeight: 'bold',
+    color: COLORS.background,
+    fontSize: 18,
+    fontWeight: '700',
+    letterSpacing: 2,
   },
   stopButton: {
-    backgroundColor: '#f44336',
+    backgroundColor: COLORS.danger,
     paddingVertical: 20,
-    borderRadius: 12,
+    borderRadius: 16,
+    flexDirection: 'row',
     alignItems: 'center',
+    justifyContent: 'center',
+    gap: 12,
+  },
+  stopButtonPressed: {
+    opacity: 0.9,
   },
   stopButtonText: {
-    color: '#fff',
-    fontSize: 24,
-    fontWeight: 'bold',
+    color: '#FFF',
+    fontSize: 18,
+    fontWeight: '700',
+    letterSpacing: 2,
   },
   backButton: {
-    backgroundColor: '#666',
+    backgroundColor: COLORS.accent,
     paddingVertical: 20,
-    borderRadius: 12,
+    borderRadius: 16,
+    flexDirection: 'row',
     alignItems: 'center',
+    justifyContent: 'center',
+    gap: 12,
   },
   backButtonText: {
-    color: '#fff',
+    color: COLORS.background,
     fontSize: 18,
-    fontWeight: '600',
+    fontWeight: '700',
+    letterSpacing: 2,
   },
 });
