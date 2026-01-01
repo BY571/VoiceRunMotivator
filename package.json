@@ -31,7 +31,10 @@
     "react-native-safe-area-context": "5.4.0",
     "react-native-screens": "~4.10.0",
     "react-native-web": "~0.20.0",
-    "expo-speech": "~13.1.7"
+    "expo-speech": "~13.1.7",
+    "expo-location": "~18.1.6",
+    "expo-task-manager": "~13.1.6",
+    "expo-keep-awake": "~14.1.4"
   },
   "devDependencies": {
     "@babel/core": "^7.25.2",

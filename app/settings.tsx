@@ -1,245 +1,291 @@
 import React, { useState, useEffect } from 'react';
-import { View, Text, TextInput, Button, StyleSheet, Alert, TouchableOpacity } from 'react-native';
+import {
+  View,
+  Text,
+  TextInput,
+  StyleSheet,
+  Alert,
+  TouchableOpacity,
+  ScrollView,
+  Pressable,
+} from 'react-native';
 import AsyncStorage from '@react-native-async-storage/async-storage';
+import { useRouter } from 'expo-router';
 
-const SETTINGS_KEY = 'runSettings';
-const DEFAULT_POLLING_INTERVAL = 10; // seconds
-const DEFAULT_FEEDBACK_INTERVAL = 0.4; // km
-const DEFAULT_TIMING_CHECKPOINT = 0.4; // km
-const DEFAULT_PACEMAKER_MODE = 'Neutral';
-
-type PaceMakerMode = 'Neutral' | 'Motivating' | 'Goggins';
+import { RunSettings, DEFAULT_SETTINGS, SETTINGS_KEY } from '../types/location';
 
 export default function SettingsScreen() {
-  const [pollingInterval, setPollingInterval] = useState('');
-  const [feedbackInterval, setFeedbackInterval] = useState('');
-  const [timingCheckpoint, setTimingCheckpoint] = useState('');
-  const [pacemakerMode, setPacemakerMode] = useState<PaceMakerMode>(DEFAULT_PACEMAKER_MODE as PaceMakerMode);
-  const [currentSettings, setCurrentSettings] = useState<{
-    pollingInterval: number;
-    feedbackInterval: number;
-    timingCheckpoint: number;
-    pacemakerMode: PaceMakerMode;
-  }>({ 
-    pollingInterval: DEFAULT_POLLING_INTERVAL,
-    feedbackInterval: DEFAULT_FEEDBACK_INTERVAL,
-    timingCheckpoint: DEFAULT_TIMING_CHECKPOINT,
-    pacemakerMode: DEFAULT_PACEMAKER_MODE as PaceMakerMode
-  });
-
-  const loadSettings = async () => {
-    try {
-      const saved = await AsyncStorage.getItem(SETTINGS_KEY);
-      if (saved) {
-        const settings = JSON.parse(saved);
-        setCurrentSettings(settings);
-        setPollingInterval(settings.pollingInterval?.toString() || DEFAULT_POLLING_INTERVAL.toString());
-        setFeedbackInterval(settings.feedbackInterval?.toString() || DEFAULT_FEEDBACK_INTERVAL.toString());
-        setTimingCheckpoint(settings.timingCheckpoint?.toString() || DEFAULT_TIMING_CHECKPOINT.toString());
-        setPacemakerMode((settings.pacemakerMode as PaceMakerMode) || DEFAULT_PACEMAKER_MODE as PaceMakerMode);
-      } else {
-        // Set default values if no settings exist
-        const defaultSettings: {
-          pollingInterval: number;
-          feedbackInterval: number;
-          timingCheckpoint: number;
-          pacemakerMode: PaceMakerMode;
-        } = {
-          pollingInterval: DEFAULT_POLLING_INTERVAL,
-          feedbackInterval: DEFAULT_FEEDBACK_INTERVAL,
-          timingCheckpoint: DEFAULT_TIMING_CHECKPOINT,
-          pacemakerMode: DEFAULT_PACEMAKER_MODE as PaceMakerMode
-        };
-        await AsyncStorage.setItem(SETTINGS_KEY, JSON.stringify(defaultSettings));
-        setCurrentSettings(defaultSettings);
-        setPollingInterval(DEFAULT_POLLING_INTERVAL.toString());
-        setFeedbackInterval(DEFAULT_FEEDBACK_INTERVAL.toString());
-        setTimingCheckpoint(DEFAULT_TIMING_CHECKPOINT.toString());
-        setPacemakerMode(DEFAULT_PACEMAKER_MODE as PaceMakerMode);
-      }
-    } catch (error) {
-      Alert.alert('Error', 'Failed to load settings');
-    }
-  };
+  const router = useRouter();
+  const [settings, setSettings] = useState<RunSettings>(DEFAULT_SETTINGS);
+  const [feedbackTimeInterval, setFeedbackTimeInterval] = useState('');
+  const [feedbackDistanceInterval, setFeedbackDistanceInterval] = useState('');
+  const [checkpointInterval, setCheckpointInterval] = useState('');
 
   useEffect(() => {
     loadSettings();
   }, []);
 
+  const loadSettings = async () => {
+    try {
+      const saved = await AsyncStorage.getItem(SETTINGS_KEY);
+      if (saved) {
+        const loaded: RunSettings = { ...DEFAULT_SETTINGS, ...JSON.parse(saved) };
+        setSettings(loaded);
+        setFeedbackTimeInterval(loaded.feedbackTimeInterval.toString());
+        setFeedbackDistanceInterval(loaded.feedbackDistanceInterval.toString());
+        setCheckpointInterval(loaded.checkpointInterval.toString());
+      } else {
+        setFeedbackTimeInterval(DEFAULT_SETTINGS.feedbackTimeInterval.toString());
+        setFeedbackDistanceInterval(DEFAULT_SETTINGS.feedbackDistanceInterval.toString());
+        setCheckpointInterval(DEFAULT_SETTINGS.checkpointInterval.toString());
+      }
+    } catch {
+      Alert.alert('Error', 'Failed to load settings');
+    }
+  };
+
   const saveSettings = async () => {
-    const pollingNum = parseFloat(pollingInterval);
-    const feedbackNum = parseFloat(feedbackInterval);
-    const checkpointNum = parseFloat(timingCheckpoint);
+    const timeIntervalNum = parseFloat(feedbackTimeInterval);
+    const distanceIntervalNum = parseFloat(feedbackDistanceInterval);
+    const checkpointNum = parseFloat(checkpointInterval);
 
-    // Validate inputs
-    if (isNaN(pollingNum) || pollingNum <= 0) {
-      Alert.alert('Error', 'Polling interval must be greater than 0');
+    // Validate
+    if (isNaN(timeIntervalNum) || timeIntervalNum < 5) {
+      Alert.alert('Error', 'Time interval must be at least 5 seconds');
       return;
     }
 
-    if (isNaN(feedbackNum) || feedbackNum <= 0) {
-      Alert.alert('Error', 'Feedback interval must be greater than 0');
+    if (isNaN(distanceIntervalNum) || distanceIntervalNum < 0.1) {
+      Alert.alert('Error', 'Distance interval must be at least 0.1 km');
       return;
     }
 
-    if (isNaN(checkpointNum) || checkpointNum < 0.1 || checkpointNum > 1) {
-      Alert.alert('Error', 'Timing checkpoint must be between 0.1 km and 1 km');
+    if (isNaN(checkpointNum) || checkpointNum < 0.1) {
+      Alert.alert('Error', 'Checkpoint interval must be at least 0.1 km');
       return;
     }
 
-    const newSettings: {
-      pollingInterval: number;
-      feedbackInterval: number;
-      timingCheckpoint: number;
-      pacemakerMode: PaceMakerMode;
-    } = {
-      pollingInterval: pollingNum,
-      feedbackInterval: feedbackNum,
-      timingCheckpoint: checkpointNum,
-      pacemakerMode
+    const newSettings: RunSettings = {
+      ...settings,
+      feedbackTimeInterval: timeIntervalNum,
+      feedbackDistanceInterval: distanceIntervalNum,
+      checkpointInterval: checkpointNum,
     };
 
     try {
       await AsyncStorage.setItem(SETTINGS_KEY, JSON.stringify(newSettings));
-      setCurrentSettings(newSettings);
-      Alert.alert('Success', 'Settings saved successfully');
-    } catch (error) {
+      setSettings(newSettings);
+      Alert.alert('Saved', 'Settings saved successfully');
+    } catch {
       Alert.alert('Error', 'Failed to save settings');
     }
   };
 
+  const setFeedbackMode = (mode: 'time' | 'distance') => {
+    setSettings((prev) => ({ ...prev, feedbackTriggerMode: mode }));
+  };
+
   return (
-    <View style={styles.container}>
+    <ScrollView style={styles.container} contentContainerStyle={styles.content}>
       <Text style={styles.title}>Settings</Text>
 
-      <Text style={styles.label}>Polling Interval (seconds):</Text>
-      <Text style={styles.description}>How often data gets updated from Strava.</Text>
-      <Text style={styles.currentValue}>
-        Current: {currentSettings.pollingInterval?.toString() || 'Not set'}
-      </Text>
-      <TextInput
-        style={styles.input}
-        keyboardType="decimal-pad"
-        value={pollingInterval}
-        onChangeText={setPollingInterval}
-        placeholder="e.g., 10"
-      />
+      {/* Feedback Trigger Mode */}
+      <View style={styles.section}>
+        <Text style={styles.sectionTitle}>Pace Feedback Trigger</Text>
+        <Text style={styles.description}>
+          Choose when you want to receive pace updates during your run.
+        </Text>
 
-      <Text style={styles.label}>Feedback Interval (km):</Text>
-      <Text style={styles.description}>How often pacemaker will update you on your current pace status.</Text>
-      <Text style={styles.currentValue}>
-        Current: {currentSettings.feedbackInterval?.toString() || 'Not set'}
-      </Text>
-      <TextInput
-        style={styles.input}
-        keyboardType="decimal-pad"
-        value={feedbackInterval}
-        onChangeText={setFeedbackInterval}
-        placeholder="e.g., 0.5"
-      />
-
-      <Text style={styles.label}>Timing Checkpoint (km):</Text>
-      <Text style={styles.description}>At what distance intervals pacemaker will inform you about your current time.</Text>
-      <Text style={styles.currentValue}>
-        Current: {currentSettings.timingCheckpoint?.toString() || 'Not set'}
-      </Text>
-      <TextInput
-        style={styles.input}
-        keyboardType="decimal-pad"
-        value={timingCheckpoint}
-        onChangeText={setTimingCheckpoint}
-        placeholder="e.g., 0.4"
-      />
-
-      <Text style={styles.label}>PaceMaker Mode:</Text>
-      <Text style={styles.description}>Select the personality and motivation style of your pacemaker.</Text>
-      <Text style={styles.currentValue}>
-        Current: {currentSettings.pacemakerMode || 'Not set'}
-      </Text>
-      <View style={styles.sliderContainer}>
-        {(['Neutral', 'Motivating', 'Goggins'] as PaceMakerMode[]).map((mode) => (
+        <View style={styles.toggleContainer}>
           <TouchableOpacity
-            key={mode}
-            style={[styles.sliderOption, mode === pacemakerMode && styles.sliderOptionSelected]}
-            onPress={() => setPacemakerMode(mode)}
+            style={[
+              styles.toggleOption,
+              settings.feedbackTriggerMode === 'time' && styles.toggleSelected,
+            ]}
+            onPress={() => setFeedbackMode('time')}
           >
-            <Text style={[styles.sliderText, mode === pacemakerMode && styles.sliderTextSelected]}>
-              {mode}
+            <Text
+              style={[
+                styles.toggleText,
+                settings.feedbackTriggerMode === 'time' && styles.toggleTextSelected,
+              ]}
+            >
+              Time-based
             </Text>
           </TouchableOpacity>
-        ))}
+          <TouchableOpacity
+            style={[
+              styles.toggleOption,
+              settings.feedbackTriggerMode === 'distance' && styles.toggleSelected,
+            ]}
+            onPress={() => setFeedbackMode('distance')}
+          >
+            <Text
+              style={[
+                styles.toggleText,
+                settings.feedbackTriggerMode === 'distance' && styles.toggleTextSelected,
+              ]}
+            >
+              Distance-based
+            </Text>
+          </TouchableOpacity>
+        </View>
       </View>
 
-      <View style={styles.buttonContainer}>
-        <Button title="Save Settings" onPress={saveSettings} color="#2196F3" />
+      {/* Time-based settings */}
+      {settings.feedbackTriggerMode === 'time' && (
+        <View style={styles.section}>
+          <Text style={styles.label}>Feedback every (seconds)</Text>
+          <Text style={styles.description}>
+            How often you'll hear pace updates. Example: 30 = every 30 seconds.
+          </Text>
+          <TextInput
+            style={styles.input}
+            keyboardType="number-pad"
+            value={feedbackTimeInterval}
+            onChangeText={setFeedbackTimeInterval}
+            placeholder="30"
+          />
+        </View>
+      )}
+
+      {/* Distance-based settings */}
+      {settings.feedbackTriggerMode === 'distance' && (
+        <View style={styles.section}>
+          <Text style={styles.label}>Feedback every (km)</Text>
+          <Text style={styles.description}>
+            How often you'll hear pace updates. Example: 0.5 = every 500 meters.
+          </Text>
+          <TextInput
+            style={styles.input}
+            keyboardType="decimal-pad"
+            value={feedbackDistanceInterval}
+            onChangeText={setFeedbackDistanceInterval}
+            placeholder="0.5"
+          />
+        </View>
+      )}
+
+      {/* Checkpoint interval */}
+      <View style={styles.section}>
+        <Text style={styles.label}>Distance Checkpoints (km)</Text>
+        <Text style={styles.description}>
+          Announces your elapsed time at each distance milestone. Example: 1.0 = every kilometer.
+        </Text>
+        <TextInput
+          style={styles.input}
+          keyboardType="decimal-pad"
+          value={checkpointInterval}
+          onChangeText={setCheckpointInterval}
+          placeholder="1.0"
+        />
       </View>
-    </View>
+
+      {/* Save Button */}
+      <Pressable style={styles.saveButton} onPress={saveSettings}>
+        <Text style={styles.saveButtonText}>Save Settings</Text>
+      </Pressable>
+
+      {/* Back Button */}
+      <Pressable style={styles.backButton} onPress={() => router.back()}>
+        <Text style={styles.backButtonText}>Back</Text>
+      </Pressable>
+    </ScrollView>
   );
 }
 
 const styles = StyleSheet.create({
   container: {
     flex: 1,
-    padding: 24,
-    backgroundColor: '#fff',
+    backgroundColor: '#1a1a2e',
+  },
+  content: {
+    padding: 20,
+    paddingTop: 60,
+    paddingBottom: 40,
   },
   title: {
     fontSize: 28,
     fontWeight: 'bold',
-    marginBottom: 32,
+    color: '#fff',
+    marginBottom: 30,
     textAlign: 'center',
   },
-  label: {
-    fontSize: 18,
-    marginBottom: 6,
+  section: {
+    marginBottom: 24,
   },
-  currentValue: {
-    fontSize: 14,
-    color: '#666',
+  sectionTitle: {
+    fontSize: 18,
+    fontWeight: '600',
+    color: '#fff',
     marginBottom: 8,
   },
-  input: {
-    height: 48,
-    borderColor: '#ddd',
-    borderWidth: 1,
-    borderRadius: 8,
-    marginBottom: 24,
-    paddingHorizontal: 16,
+  label: {
     fontSize: 16,
-    backgroundColor: '#f8f8f8',
-  },
-  buttonContainer: {
-    marginTop: 16,
-  },
-  sliderContainer: {
-    flexDirection: 'row',
-    justifyContent: 'space-between',
-    marginBottom: 24,
-    padding: 4,
-    backgroundColor: '#f0f0f0',
-    borderRadius: 8,
-  },
-  sliderOption: {
-    flex: 1,
-    padding: 12,
-    alignItems: 'center',
-    borderRadius: 6,
-  },
-  sliderOptionSelected: {
-    backgroundColor: '#2196F3',
-  },
-  sliderText: {
-    fontSize: 14,
-    color: '#666',
-  },
-  sliderTextSelected: {
+    fontWeight: '600',
     color: '#fff',
-    fontWeight: 'bold',
+    marginBottom: 4,
   },
   description: {
     fontSize: 14,
-    color: '#666',
-    marginBottom: 8,
-    fontStyle: 'italic',
+    color: '#888',
+    marginBottom: 12,
+  },
+  input: {
+    height: 50,
+    borderColor: '#333',
+    borderWidth: 1,
+    borderRadius: 8,
+    paddingHorizontal: 16,
+    fontSize: 18,
+    backgroundColor: '#2a2a4e',
+    color: '#fff',
+  },
+  toggleContainer: {
+    flexDirection: 'row',
+    backgroundColor: '#2a2a4e',
+    borderRadius: 8,
+    padding: 4,
+  },
+  toggleOption: {
+    flex: 1,
+    paddingVertical: 12,
+    alignItems: 'center',
+    borderRadius: 6,
+  },
+  toggleSelected: {
+    backgroundColor: '#2196F3',
+  },
+  toggleText: {
+    fontSize: 16,
+    color: '#888',
+    fontWeight: '500',
+  },
+  toggleTextSelected: {
+    color: '#fff',
+    fontWeight: '600',
+  },
+  saveButton: {
+    backgroundColor: '#4CAF50',
+    paddingVertical: 16,
+    borderRadius: 8,
+    alignItems: 'center',
+    marginTop: 20,
+  },
+  saveButtonText: {
+    color: '#fff',
+    fontSize: 18,
+    fontWeight: '600',
+  },
+  backButton: {
+    backgroundColor: '#333',
+    paddingVertical: 16,
+    borderRadius: 8,
+    alignItems: 'center',
+    marginTop: 12,
+  },
+  backButtonText: {
+    color: '#fff',
+    fontSize: 16,
   },
 });
