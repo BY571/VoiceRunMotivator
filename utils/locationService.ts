@@ -1,10 +1,12 @@
 import * as Location from 'expo-location';
 import * as TaskManager from 'expo-task-manager';
+import AsyncStorage from '@react-native-async-storage/async-storage';
 import { LocationPoint } from '../types/location';
 
 export const LOCATION_TASK_NAME = 'pacemaker-background-location';
+export const BACKGROUND_LOCATIONS_KEY = 'pacemaker-background-locations';
 
-// Event emitter for location updates
+// Event emitter for location updates (foreground)
 type LocationCallback = (point: LocationPoint) => void;
 
 class LocationEventEmitter {
@@ -27,6 +29,33 @@ class LocationEventEmitter {
 }
 
 export const locationEventEmitter = new LocationEventEmitter();
+
+/**
+ * Get and clear background locations stored while app was backgrounded
+ */
+export async function getBackgroundLocations(): Promise<LocationPoint[]> {
+  try {
+    const stored = await AsyncStorage.getItem(BACKGROUND_LOCATIONS_KEY);
+    if (stored) {
+      await AsyncStorage.removeItem(BACKGROUND_LOCATIONS_KEY);
+      return JSON.parse(stored);
+    }
+  } catch (e) {
+    console.error('Error reading background locations:', e);
+  }
+  return [];
+}
+
+/**
+ * Clear stored background locations
+ */
+export async function clearBackgroundLocations(): Promise<void> {
+  try {
+    await AsyncStorage.removeItem(BACKGROUND_LOCATIONS_KEY);
+  } catch (e) {
+    console.error('Error clearing background locations:', e);
+  }
+}
 
 /**
  * Request foreground and background location permissions
@@ -145,14 +174,29 @@ export function defineBackgroundTask(): void {
       }
 
       if (data?.locations) {
-        data.locations.forEach((location) => {
-          locationEventEmitter.emit({
-            latitude: location.coords.latitude,
-            longitude: location.coords.longitude,
-            timestamp: location.timestamp,
-            accuracy: location.coords.accuracy,
-          });
+        const newPoints: LocationPoint[] = data.locations.map((location) => ({
+          latitude: location.coords.latitude,
+          longitude: location.coords.longitude,
+          timestamp: location.timestamp,
+          accuracy: location.coords.accuracy,
+        }));
+
+        // Emit for foreground listeners
+        newPoints.forEach((point) => {
+          locationEventEmitter.emit(point);
         });
+
+        // Also store in AsyncStorage for when app is backgrounded
+        try {
+          const existing = await AsyncStorage.getItem(BACKGROUND_LOCATIONS_KEY);
+          const existingPoints: LocationPoint[] = existing ? JSON.parse(existing) : [];
+          const allPoints = [...existingPoints, ...newPoints];
+          // Keep only last 1000 points to prevent storage overflow
+          const trimmedPoints = allPoints.slice(-1000);
+          await AsyncStorage.setItem(BACKGROUND_LOCATIONS_KEY, JSON.stringify(trimmedPoints));
+        } catch (e) {
+          console.error('Error storing background location:', e);
+        }
       }
     }
   );

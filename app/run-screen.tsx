@@ -1,6 +1,7 @@
 import React, { useEffect, useRef, useState, useCallback } from 'react';
-import { View, Text, StyleSheet, Alert, Pressable } from 'react-native';
+import { View, Text, StyleSheet, Alert, Pressable, AppState, AppStateStatus } from 'react-native';
 import * as Speech from 'expo-speech';
+import { Audio } from 'expo-av';
 import { useLocalSearchParams, useRouter } from 'expo-router';
 import AsyncStorage from '@react-native-async-storage/async-storage';
 import { activateKeepAwakeAsync, deactivateKeepAwake } from 'expo-keep-awake';
@@ -20,6 +21,8 @@ import {
   stopLocationTracking,
   locationEventEmitter,
   getCurrentLocation,
+  getBackgroundLocations,
+  clearBackgroundLocations,
 } from '../utils/locationService';
 import { getRandomFeedback, PaceFeedbackType } from '../constants/paceFeedbackPhrases';
 
@@ -61,9 +64,15 @@ export default function RunScreen() {
   const [settings, setSettings] = useState<RunSettings>(DEFAULT_SETTINGS);
   const [gpsStatus, setGpsStatus] = useState<'searching' | 'acquired' | 'poor'>('searching');
   const [lastFeedback, setLastFeedback] = useState('');
+  const [countdown, setCountdown] = useState<number | null>(null);
+
+  // Audio refs
+  const shortBeepRef = useRef<Audio.Sound | null>(null);
+  const longBeepRef = useRef<Audio.Sound | null>(null);
 
   // Refs
   const timerRef = useRef<ReturnType<typeof setInterval> | null>(null);
+  const runStartTimeRef = useRef<number | null>(null);
   const lastFeedbackTimeRef = useRef(0);
   const lastFeedbackDistanceRef = useRef(0);
   const lastCheckpointDistanceRef = useRef(0);
@@ -81,6 +90,31 @@ export default function RunScreen() {
         // Use defaults
       }
     })();
+  }, []);
+
+  // Load audio sounds on mount
+  useEffect(() => {
+    const loadSounds = async () => {
+      try {
+        const { sound: shortBeep } = await Audio.Sound.createAsync(
+          require('../assets/audio/beep-short.mp3')
+        );
+        const { sound: longBeep } = await Audio.Sound.createAsync(
+          require('../assets/audio/beep-long.mp3')
+        );
+        shortBeepRef.current = shortBeep;
+        longBeepRef.current = longBeep;
+      } catch {
+        // Sounds not available, continue without
+      }
+    };
+    loadSounds();
+
+    return () => {
+      // Cleanup sounds on unmount
+      shortBeepRef.current?.unloadAsync();
+      longBeepRef.current?.unloadAsync();
+    };
   }, []);
 
   // Validate params
@@ -127,11 +161,20 @@ export default function RunScreen() {
     };
   }, [runState]);
 
-  // Timer for elapsed time
+  // Timer for elapsed time - uses actual timestamps for accuracy across background/foreground
   useEffect(() => {
     if (runState === 'running') {
+      // Set start time if not already set
+      if (runStartTimeRef.current === null) {
+        runStartTimeRef.current = Date.now();
+      }
+
+      // Update elapsed time every second based on actual time difference
       timerRef.current = setInterval(() => {
-        setElapsedSeconds((prev) => prev + 1);
+        if (runStartTimeRef.current !== null) {
+          const elapsed = Math.floor((Date.now() - runStartTimeRef.current) / 1000);
+          setElapsedSeconds(elapsed);
+        }
       }, 1000);
     } else if (timerRef.current) {
       clearInterval(timerRef.current);
@@ -169,6 +212,42 @@ export default function RunScreen() {
 
     return () => {
       unsubscribe();
+    };
+  }, [runState, targetDistNum]);
+
+  // Handle app returning from background - retrieve stored locations
+  useEffect(() => {
+    if (runState !== 'running') return;
+
+    const handleAppStateChange = async (nextAppState: AppStateStatus) => {
+      if (nextAppState === 'active') {
+        // App came to foreground - retrieve background locations
+        const backgroundPoints = await getBackgroundLocations();
+        if (backgroundPoints.length > 0) {
+          // Filter and add valid points
+          backgroundPoints.forEach((point) => {
+            const lastPoint = locationPointsRef.current[locationPointsRef.current.length - 1] || null;
+            if (isValidLocationUpdate(point, lastPoint)) {
+              locationPointsRef.current = [...locationPointsRef.current, point];
+            }
+          });
+          setLocationPoints([...locationPointsRef.current]);
+          const newDistance = calculateTotalDistance(locationPointsRef.current);
+          setTotalDistance(newDistance);
+          setGpsStatus('acquired');
+
+          // Check if run is complete
+          if (newDistance >= targetDistNum) {
+            handleFinishRun();
+          }
+        }
+      }
+    };
+
+    const subscription = AppState.addEventListener('change', handleAppStateChange);
+
+    return () => {
+      subscription.remove();
     };
   }, [runState, targetDistNum]);
 
@@ -252,6 +331,30 @@ export default function RunScreen() {
     }
   }, [totalDistance, runState, settings.checkpointInterval, elapsedSeconds]);
 
+  // Play countdown beeps: 3 short + 1 long
+  const playCountdown = useCallback(async (): Promise<void> => {
+    const delay = (ms: number) => new Promise((resolve) => setTimeout(resolve, ms));
+
+    // 3 short beeps (1 second apart)
+    for (let i = 3; i >= 1; i--) {
+      setCountdown(i);
+      if (shortBeepRef.current) {
+        await shortBeepRef.current.setPositionAsync(0);
+        await shortBeepRef.current.playAsync();
+      }
+      await delay(1000);
+    }
+
+    // Final long beep
+    setCountdown(0);
+    if (longBeepRef.current) {
+      await longBeepRef.current.setPositionAsync(0);
+      await longBeepRef.current.playAsync();
+    }
+    await delay(600);
+    setCountdown(null);
+  }, []);
+
   const handleStartRun = useCallback(async () => {
     const permissions = await requestLocationPermissions();
 
@@ -268,16 +371,28 @@ export default function RunScreen() {
       Alert.alert(
         'Background Location',
         'For best experience, allow background location so tracking continues when your phone is in your pocket.',
-        [{ text: 'Continue Anyway', onPress: startRun }]
+        [{ text: 'Continue Anyway', onPress: startWithCountdown }]
       );
       return;
     }
 
-    startRun();
+    startWithCountdown();
   }, []);
+
+  const startWithCountdown = async () => {
+    await playCountdown();
+    startRun();
+  };
 
   const startRun = async () => {
     setGpsStatus('searching');
+
+    // Clear any old background locations
+    await clearBackgroundLocations();
+
+    // Reset start time for accurate elapsed time tracking
+    runStartTimeRef.current = Date.now();
+    setElapsedSeconds(0);
 
     // Get initial position
     const initialPos = await getCurrentLocation();
@@ -412,9 +527,18 @@ export default function RunScreen() {
         </View>
       )}
 
+      {/* Countdown Display */}
+      {countdown !== null && (
+        <View style={styles.countdownOverlay}>
+          <Text style={styles.countdownNumber}>
+            {countdown === 0 ? 'GO!' : countdown}
+          </Text>
+        </View>
+      )}
+
       {/* Action Buttons */}
       <View style={styles.buttonContainer}>
-        {runState === 'waiting' && (
+        {runState === 'waiting' && countdown === null && (
           <Pressable
             style={({ pressed }) => [styles.startButton, pressed && styles.buttonPressed]}
             onPress={handleStartRun}
@@ -680,5 +804,24 @@ const styles = StyleSheet.create({
     fontSize: 18,
     fontWeight: '700',
     letterSpacing: 2,
+  },
+  countdownOverlay: {
+    position: 'absolute',
+    top: 0,
+    left: 0,
+    right: 0,
+    bottom: 0,
+    backgroundColor: 'rgba(0, 0, 0, 0.85)',
+    justifyContent: 'center',
+    alignItems: 'center',
+    zIndex: 100,
+  },
+  countdownNumber: {
+    fontSize: 160,
+    fontWeight: '800',
+    color: COLORS.accent,
+    textShadowColor: COLORS.accent,
+    textShadowOffset: { width: 0, height: 0 },
+    textShadowRadius: 30,
   },
 });

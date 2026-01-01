@@ -74,7 +74,7 @@ export default function GoalSetupScreen() {
       </View>
 
       <Text style={styles.title}>PACEMAKER</Text>
-      <Text style={styles.subtitle}>Set your goal. Own your pace.</Text>
+      <Text style={styles.subtitle}>Enter distance and time to set your pace</Text>
 
       {/* Target Pace Card */}
       <View style={styles.paceCard}>
@@ -100,11 +100,12 @@ export default function GoalSetupScreen() {
               keyboardType="decimal-pad"
               value={distance}
               onChangeText={setDistance}
-              placeholder="5.0"
+              placeholder=""
               placeholderTextColor={COLORS.textMuted}
             />
             <Text style={styles.inputUnit}>km</Text>
           </View>
+          <Text style={styles.inputHint}>e.g. 5</Text>
         </View>
 
         <View style={styles.inputCard}>
@@ -115,11 +116,12 @@ export default function GoalSetupScreen() {
               keyboardType="decimal-pad"
               value={time}
               onChangeText={setTime}
-              placeholder="25"
+              placeholder=""
               placeholderTextColor={COLORS.textMuted}
             />
             <Text style={styles.inputUnit}>min</Text>
           </View>
+          <Text style={styles.inputHint}>e.g. 25</Text>
         </View>
       </View>
 
@@ -284,6 +286,11 @@ const styles = StyleSheet.create({
     fontSize: 16,
     color: COLORS.textSecondary,
     fontWeight: '500',
+  },
+  inputHint: {
+    fontSize: 12,
+    color: COLORS.textMuted,
+    marginTop: 8,
   },
   buttonContainer: {
     flex: 1,
