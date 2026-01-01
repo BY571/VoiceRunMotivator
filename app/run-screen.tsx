@@ -201,8 +201,8 @@ export default function RunScreen() {
         setTotalDistance(newDistance);
         setGpsStatus('acquired');
 
-        // Check if run is complete
-        if (newDistance >= targetDistNum) {
+        // Check if run is complete (only auto-stop if setting enabled)
+        if (newDistance >= targetDistNum && settings.autoStopOnGoal) {
           handleFinishRun();
         }
       } else if (point.accuracy && point.accuracy > 20) {
@@ -213,9 +213,9 @@ export default function RunScreen() {
     return () => {
       unsubscribe();
     };
-  }, [runState, targetDistNum]);
+  }, [runState, targetDistNum, settings.autoStopOnGoal]);
 
-  // Handle app returning from background - retrieve stored locations
+  // Handle app returning from background - retrieve stored locations and give feedback
   useEffect(() => {
     if (runState !== 'running') return;
 
@@ -223,6 +223,14 @@ export default function RunScreen() {
       if (nextAppState === 'active') {
         // App came to foreground - retrieve background locations
         const backgroundPoints = await getBackgroundLocations();
+
+        // Get current elapsed time (always accurate due to timestamp-based calculation)
+        const currentElapsed = runStartTimeRef.current
+          ? Math.floor((Date.now() - runStartTimeRef.current) / 1000)
+          : elapsedSeconds;
+
+        let newDistance = totalDistance;
+
         if (backgroundPoints.length > 0) {
           // Filter and add valid points
           backgroundPoints.forEach((point) => {
@@ -232,13 +240,52 @@ export default function RunScreen() {
             }
           });
           setLocationPoints([...locationPointsRef.current]);
-          const newDistance = calculateTotalDistance(locationPointsRef.current);
+          newDistance = calculateTotalDistance(locationPointsRef.current);
           setTotalDistance(newDistance);
           setGpsStatus('acquired');
 
-          // Check if run is complete
-          if (newDistance >= targetDistNum) {
+          // Check if run is complete (only auto-stop if setting enabled)
+          if (newDistance >= targetDistNum && settings.autoStopOnGoal) {
             handleFinishRun();
+            return;
+          }
+        }
+
+        // Give immediate pace feedback on return from background
+        if (newDistance > 0) {
+          const currentPace = calculatePaceMinPerKm(newDistance, currentElapsed);
+          let paceType: PaceFeedbackType;
+
+          if (currentPace === null) {
+            paceType = 'onPace';
+          } else {
+            const paceDiff = currentPace - targetPaceMinPerKm;
+            if (Math.abs(paceDiff) < 0.1) {
+              paceType = 'onPace';
+            } else if (paceDiff > 0) {
+              paceType = 'behind';
+            } else {
+              paceType = 'ahead';
+            }
+          }
+
+          // Update feedback refs to current values
+          lastFeedbackTimeRef.current = currentElapsed;
+          lastFeedbackDistanceRef.current = newDistance;
+
+          const message = getRandomFeedback(paceType);
+          setLastFeedback(message);
+
+          try {
+            await Speech.stop();
+            await Speech.speak(message, {
+              language: 'en-US',
+              rate: 0.9,
+              pitch: 1.0,
+              volume: 1.0,
+            });
+          } catch {
+            // Ignore speech errors
           }
         }
       }
@@ -249,7 +296,7 @@ export default function RunScreen() {
     return () => {
       subscription.remove();
     };
-  }, [runState, targetDistNum]);
+  }, [runState, targetDistNum, targetPaceMinPerKm, elapsedSeconds, totalDistance, settings.autoStopOnGoal]);
 
   // Voice feedback logic
   useEffect(() => {

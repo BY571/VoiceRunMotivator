@@ -98,6 +98,10 @@ export default function SettingsScreen() {
     setSettings((prev) => ({ ...prev, feedbackTriggerMode: mode }));
   };
 
+  const setAutoStopOnGoal = (autoStop: boolean) => {
+    setSettings((prev) => ({ ...prev, autoStopOnGoal: autoStop }));
+  };
+
   return (
     <ScrollView style={styles.container} contentContainerStyle={styles.content}>
       {/* Header */}
@@ -222,6 +226,64 @@ export default function SettingsScreen() {
           <Text style={styles.inputUnit}>km</Text>
         </View>
         <Text style={styles.cardHint}>Announces elapsed time at each milestone</Text>
+      </View>
+
+      {/* Goal Completion Behavior */}
+      <View style={styles.section}>
+        <View style={styles.sectionHeader}>
+          <FontAwesome name="flag" size={16} color={COLORS.accent} />
+          <Text style={styles.sectionTitle}>WHEN GOAL IS REACHED</Text>
+        </View>
+        <Text style={styles.description}>
+          Choose what happens when you reach your target distance.
+        </Text>
+
+        <View style={styles.toggleContainer}>
+          <TouchableOpacity
+            style={[
+              styles.toggleOption,
+              settings.autoStopOnGoal && styles.toggleSelected,
+            ]}
+            onPress={() => setAutoStopOnGoal(true)}
+            activeOpacity={0.7}
+          >
+            <FontAwesome
+              name="stop-circle"
+              size={16}
+              color={settings.autoStopOnGoal ? COLORS.background : COLORS.textSecondary}
+            />
+            <Text
+              style={[
+                styles.toggleText,
+                settings.autoStopOnGoal && styles.toggleTextSelected,
+              ]}
+            >
+              Auto Stop
+            </Text>
+          </TouchableOpacity>
+          <TouchableOpacity
+            style={[
+              styles.toggleOption,
+              !settings.autoStopOnGoal && styles.toggleSelected,
+            ]}
+            onPress={() => setAutoStopOnGoal(false)}
+            activeOpacity={0.7}
+          >
+            <FontAwesome
+              name="play-circle"
+              size={16}
+              color={!settings.autoStopOnGoal ? COLORS.background : COLORS.textSecondary}
+            />
+            <Text
+              style={[
+                styles.toggleText,
+                !settings.autoStopOnGoal && styles.toggleTextSelected,
+              ]}
+            >
+              Keep Going
+            </Text>
+          </TouchableOpacity>
+        </View>
       </View>
 
       {/* Save Button */}
