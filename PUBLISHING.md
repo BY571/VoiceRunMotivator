@@ -2,6 +2,40 @@
 
 This guide walks you through publishing Pacemaker to the Google Play Store using Expo Application Services (EAS).
 
+## Quick Checklist
+
+Use this checklist to track your progress:
+
+- [ ] **1. Prerequisites**
+  - [ ] Google Play Developer Account ($25) - https://play.google.com/console/signup
+  - [ ] Expo account created and logged in (`npx eas whoami`)
+
+- [ ] **2. Test on Your Phone**
+  - [ ] Build preview APK: `npx eas build --platform android --profile preview`
+  - [ ] Install and test the app on your device
+
+- [ ] **3. Prepare Store Assets**
+  - [ ] Take 2-8 screenshots of the app
+  - [ ] Create privacy policy and host it (GitHub Pages works)
+
+- [ ] **4. Build for Production**
+  - [ ] Build AAB: `npx eas build --platform android --profile production`
+  - [ ] Download the AAB file
+
+- [ ] **5. Google Play Console Setup**
+  - [ ] Create new app in Play Console
+  - [ ] Fill in store listing (name, descriptions, screenshots)
+  - [ ] Complete content rating questionnaire
+  - [ ] Complete data safety form
+  - [ ] Add privacy policy URL
+
+- [ ] **6. Release**
+  - [ ] Upload AAB to Production track
+  - [ ] Add release notes
+  - [ ] Submit for review
+
+---
+
 ## Prerequisites
 
 1. **Google Play Developer Account** ($25 one-time fee)
