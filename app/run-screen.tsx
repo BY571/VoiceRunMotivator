@@ -1,5 +1,5 @@
 import React, { useEffect, useRef, useState, useCallback } from 'react';
-import { View, Text, StyleSheet, Alert, Pressable, AppState, AppStateStatus } from 'react-native';
+import { View, Text, StyleSheet, Alert, Pressable, AppState, AppStateStatus, Animated } from 'react-native';
 import * as Speech from 'expo-speech';
 import { Audio } from 'expo-av';
 import { useLocalSearchParams, useRouter } from 'expo-router';
@@ -63,12 +63,14 @@ export default function RunScreen() {
   const [elapsedSeconds, setElapsedSeconds] = useState(0);
   const [settings, setSettings] = useState<RunSettings>(DEFAULT_SETTINGS);
   const [gpsStatus, setGpsStatus] = useState<'searching' | 'acquired' | 'poor'>('searching');
-  const [lastFeedback, setLastFeedback] = useState('');
   const [countdown, setCountdown] = useState<number | null>(null);
 
   // Audio refs
   const shortBeepRef = useRef<Audio.Sound | null>(null);
   const longBeepRef = useRef<Audio.Sound | null>(null);
+
+  // Animation for pulsing pace indicator
+  const pulseAnim = useRef(new Animated.Value(1)).current;
 
   // Refs
   const timerRef = useRef<ReturnType<typeof setInterval> | null>(null);
@@ -131,6 +133,30 @@ export default function RunScreen() {
       ]);
     }
   }, [targetDistance, targetTime]);
+
+  // Pulsing animation for pace indicator
+  useEffect(() => {
+    if (runState === 'running') {
+      const pulse = Animated.loop(
+        Animated.sequence([
+          Animated.timing(pulseAnim, {
+            toValue: 1.15,
+            duration: 500,
+            useNativeDriver: true,
+          }),
+          Animated.timing(pulseAnim, {
+            toValue: 1,
+            duration: 500,
+            useNativeDriver: true,
+          }),
+        ])
+      );
+      pulse.start();
+      return () => pulse.stop();
+    } else {
+      pulseAnim.setValue(1);
+    }
+  }, [runState]);
 
   // Keep screen awake during run
   const keepAwakeActiveRef = useRef(false);
@@ -274,7 +300,6 @@ export default function RunScreen() {
           lastFeedbackDistanceRef.current = newDistance;
 
           const message = getRandomFeedback(paceType);
-          setLastFeedback(message);
 
           try {
             await Speech.stop();
@@ -336,7 +361,6 @@ export default function RunScreen() {
       }
 
       const message = getRandomFeedback(paceType);
-      setLastFeedback(message);
 
       try {
         await Speech.stop();
@@ -425,6 +449,28 @@ export default function RunScreen() {
 
     startWithCountdown();
   }, []);
+
+  // Auto-start run when screen loads
+  const hasAutoStarted = useRef(false);
+  useEffect(() => {
+    if (
+      !hasAutoStarted.current &&
+      runState === 'waiting' &&
+      targetDistance &&
+      targetTime &&
+      !isNaN(targetDistNum) &&
+      !isNaN(targetTimeNum) &&
+      targetDistNum > 0 &&
+      targetTimeNum > 0
+    ) {
+      hasAutoStarted.current = true;
+      // Small delay to let the screen render first
+      const timer = setTimeout(() => {
+        handleStartRun();
+      }, 300);
+      return () => clearTimeout(timer);
+    }
+  }, [runState, targetDistance, targetTime, targetDistNum, targetTimeNum, handleStartRun]);
 
   const startWithCountdown = async () => {
     await playCountdown();
@@ -553,24 +599,27 @@ export default function RunScreen() {
         </View>
       </View>
 
-      {/* Pace Status Indicator */}
-      {runState === 'running' && currentPace && (
-        <View style={[styles.paceStatusCard, styles[`paceStatus_${paceStatus}`]]}>
-          <FontAwesome
-            name={paceStatus === 'ahead' ? 'arrow-up' : paceStatus === 'behind' ? 'arrow-down' : 'check'}
-            size={20}
-            color={COLORS[paceStatus]}
+      {/* Pulsing Pace Indicator */}
+      {runState === 'running' && (
+        <View style={styles.pulseContainer}>
+          <Animated.View
+            style={[
+              styles.pulseCircle,
+              {
+                backgroundColor: paceStatus === 'behind' ? COLORS.danger : COLORS.accent,
+                transform: [{ scale: pulseAnim }],
+                shadowColor: paceStatus === 'behind' ? COLORS.danger : COLORS.accent,
+              },
+            ]}
           />
-          <Text style={[styles.paceStatusText, { color: COLORS[paceStatus] }]}>
-            {paceStatus === 'ahead' ? 'Ahead of pace' : paceStatus === 'behind' ? 'Behind pace' : 'On target'}
-          </Text>
-        </View>
-      )}
-
-      {/* Feedback Display */}
-      {lastFeedback && (
-        <View style={styles.feedbackCard}>
-          <Text style={styles.feedbackText}>{lastFeedback}</Text>
+          <View
+            style={[
+              styles.pulseInnerCircle,
+              {
+                backgroundColor: paceStatus === 'behind' ? COLORS.danger : COLORS.accent,
+              },
+            ]}
+          />
         </View>
       )}
 
@@ -753,47 +802,28 @@ const styles = StyleSheet.create({
     fontWeight: '600',
     letterSpacing: 1,
   },
-  paceStatusCard: {
-    flexDirection: 'row',
+  pulseContainer: {
     alignItems: 'center',
     justifyContent: 'center',
-    gap: 10,
-    paddingVertical: 14,
-    paddingHorizontal: 20,
-    borderRadius: 12,
-    backgroundColor: COLORS.cardBg,
+    marginTop: 20,
     marginBottom: 16,
+    height: 120,
   },
-  paceStatus_ahead: {
-    borderWidth: 1,
-    borderColor: COLORS.ahead,
+  pulseCircle: {
+    position: 'absolute',
+    width: 90,
+    height: 90,
+    borderRadius: 45,
+    opacity: 0.3,
+    shadowOffset: { width: 0, height: 0 },
+    shadowOpacity: 0.8,
+    shadowRadius: 25,
+    elevation: 10,
   },
-  paceStatus_behind: {
-    borderWidth: 1,
-    borderColor: COLORS.behind,
-  },
-  paceStatus_onPace: {
-    borderWidth: 1,
-    borderColor: COLORS.onPace,
-  },
-  paceStatusText: {
-    fontSize: 15,
-    fontWeight: '600',
-  },
-  feedbackCard: {
-    backgroundColor: COLORS.cardBg,
-    borderWidth: 1,
-    borderColor: COLORS.accent,
-    padding: 18,
-    borderRadius: 14,
-    marginBottom: 16,
-  },
-  feedbackText: {
-    color: COLORS.accent,
-    fontSize: 16,
-    fontWeight: '600',
-    textAlign: 'center',
-    lineHeight: 22,
+  pulseInnerCircle: {
+    width: 60,
+    height: 60,
+    borderRadius: 30,
   },
   buttonContainer: {
     flex: 1,
