@@ -1,4 +1,5 @@
 import { LocationPoint } from '../types/location';
+import { PaceFeedbackType } from '../constants/paceFeedbackPhrases';
 
 const EARTH_RADIUS_KM = 6371;
 const MIN_ACCURACY_METERS = 20;
@@ -135,4 +136,30 @@ export function formatElapsedTime(seconds: number): string {
     return `${hours}:${mins.toString().padStart(2, '0')}:${secs.toString().padStart(2, '0')}`;
   }
   return `${mins}:${secs.toString().padStart(2, '0')}`;
+}
+
+/**
+ * Determine pace status by comparing current pace to target pace
+ * @param currentPace Current pace in minutes per kilometer (or null if not enough data)
+ * @param targetPace Target pace in minutes per kilometer
+ * @param tolerance Pace difference tolerance in min/km (default: 0.1)
+ * @returns Pace status: 'onPace', 'behind', or 'ahead'
+ */
+export function determinePaceStatus(
+  currentPace: number | null,
+  targetPace: number,
+  tolerance: number = 0.1
+): PaceFeedbackType {
+  if (currentPace === null) {
+    return 'onPace';
+  }
+
+  const paceDiff = currentPace - targetPace;
+
+  if (Math.abs(paceDiff) < tolerance) {
+    return 'onPace';
+  }
+
+  // Higher pace number = slower (more minutes per km) = behind
+  return paceDiff > 0 ? 'behind' : 'ahead';
 }
