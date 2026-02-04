@@ -33,6 +33,7 @@ const COLORS = {
   cardBorder: '#2A2A2A',
   accent: '#00D4AA',
   accentDim: '#00A888',
+  accentLight: '#4DE5C5',
   text: '#FFFFFF',
   textSecondary: '#8A8A8A',
   textMuted: '#4A4A4A',
@@ -194,15 +195,12 @@ export default function RunScreen() {
       // Set start time if not already set
       if (runStartTimeRef.current === null) {
         runStartTimeRef.current = Date.now();
-        console.log('[TIMER] Start time set (fallback):', new Date(runStartTimeRef.current).toISOString());
       }
 
-      console.log('[TIMER] Timer started at:', new Date().toISOString());
       // Update elapsed time every second based on actual time difference
       timerRef.current = setInterval(() => {
         if (runStartTimeRef.current !== null) {
           const elapsed = Math.floor((Date.now() - runStartTimeRef.current) / 1000);
-          console.log('[TIMER] Elapsed:', elapsed, 's');
           setElapsedSeconds(elapsed);
         }
       }, 1000);
@@ -228,7 +226,6 @@ export default function RunScreen() {
         locationPointsRef.current.push(point);
         setLocationPoints([...locationPointsRef.current]);
         const newDistance = calculateTotalDistance(locationPointsRef.current);
-        console.log('[GPS] Valid point accepted. Total points:', locationPointsRef.current.length, 'Distance:', newDistance.toFixed(3), 'km', 'Accuracy:', point.accuracy?.toFixed(1), 'm');
         setTotalDistance(newDistance);
         setGpsStatus('acquired');
 
@@ -237,10 +234,7 @@ export default function RunScreen() {
           handleFinishRun();
         }
       } else if (point.accuracy && point.accuracy > 20) {
-        console.log('[GPS] Point rejected - poor accuracy:', point.accuracy?.toFixed(1), 'm');
         setGpsStatus('poor');
-      } else {
-        console.log('[GPS] Point rejected - validation failed. Accuracy:', point.accuracy?.toFixed(1), 'm');
       }
     });
 
@@ -468,7 +462,6 @@ export default function RunScreen() {
     // Reset start time for accurate elapsed time tracking
     const startTime = Date.now();
     runStartTimeRef.current = startTime;
-    console.log('[RUN] Run started at:', new Date(startTime).toISOString());
     setElapsedSeconds(0);
 
     // Get initial position
@@ -477,7 +470,6 @@ export default function RunScreen() {
       locationPointsRef.current = [initialPos];
       setLocationPoints([initialPos]);
       setGpsStatus('acquired');
-      console.log('[GPS] Initial position acquired:', initialPos);
     }
 
     await startLocationTracking();
@@ -566,7 +558,6 @@ export default function RunScreen() {
           <FontAwesome name="clock-o" size={18} color={COLORS.textSecondary} />
           <Text style={styles.statValue}>{formatElapsedTime(elapsedSeconds)}</Text>
           <Text style={styles.statLabel}>TIME</Text>
-          <Text style={styles.debugText}>{elapsedSeconds}s</Text>
         </View>
         <View style={[styles.statCard, styles.statCardAccent]}>
           <FontAwesome name="tachometer" size={18} color={COLORS[paceStatus]} />
@@ -574,18 +565,8 @@ export default function RunScreen() {
             {formatPace(currentPace)}
           </Text>
           <Text style={styles.statLabel}>PACE /KM</Text>
-          <Text style={styles.debugText}>{(totalDistance * 1000).toFixed(0)}m</Text>
         </View>
       </View>
-
-      {/* Debug Info */}
-      {runState === 'running' && (
-        <View style={styles.debugContainer}>
-          <Text style={styles.debugLabel}>
-            GPS Points: {locationPoints.length} | Accuracy: {locationPoints.length > 0 ? (locationPoints[locationPoints.length - 1].accuracy?.toFixed(1) || '?') + 'm' : 'N/A'}
-          </Text>
-        </View>
-      )}
 
       {/* Pulsing Pace Indicator */}
       {runState === 'running' && (
@@ -594,9 +575,9 @@ export default function RunScreen() {
             style={[
               styles.pulseCircle,
               {
-                backgroundColor: COLORS.accent,
+                backgroundColor: COLORS.accentLight,
                 transform: [{ scale: pulseAnim }],
-                shadowColor: COLORS.accent,
+                shadowColor: COLORS.accentLight,
               },
             ]}
           />
@@ -604,7 +585,7 @@ export default function RunScreen() {
             style={[
               styles.pulseInnerCircle,
               {
-                backgroundColor: COLORS.accent,
+                backgroundColor: COLORS.accentLight,
               },
             ]}
           />
@@ -790,26 +771,6 @@ const styles = StyleSheet.create({
     fontWeight: '600',
     letterSpacing: 1,
   },
-  debugText: {
-    fontSize: 9,
-    color: COLORS.textMuted,
-    fontWeight: '500',
-    marginTop: 4,
-  },
-  debugContainer: {
-    backgroundColor: COLORS.cardBg,
-    borderRadius: 8,
-    padding: 12,
-    marginTop: 12,
-    borderWidth: 1,
-    borderColor: COLORS.cardBorder,
-  },
-  debugLabel: {
-    fontSize: 11,
-    color: COLORS.textSecondary,
-    fontWeight: '500',
-    textAlign: 'center',
-  },
   pulseContainer: {
     alignItems: 'center',
     justifyContent: 'center',
@@ -822,9 +783,9 @@ const styles = StyleSheet.create({
     width: 90,
     height: 90,
     borderRadius: 45,
-    opacity: 0.5,
+    opacity: 0.3,
     shadowOffset: { width: 0, height: 0 },
-    shadowOpacity: 0.8,
+    shadowOpacity: 0.5,
     shadowRadius: 25,
     elevation: 10,
   },

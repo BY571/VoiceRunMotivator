@@ -38,12 +38,7 @@
         "ACCESS_COARSE_LOCATION",
         "ACCESS_BACKGROUND_LOCATION",
         "FOREGROUND_SERVICE",
-        "FOREGROUND_SERVICE_LOCATION",
-        "android.permission.ACCESS_COARSE_LOCATION",
-        "android.permission.ACCESS_FINE_LOCATION",
-        "android.permission.ACCESS_BACKGROUND_LOCATION",
-        "android.permission.FOREGROUND_SERVICE",
-        "android.permission.FOREGROUND_SERVICE_LOCATION"
+        "FOREGROUND_SERVICE_LOCATION"
       ]
     },
     "web": {
@@ -71,6 +66,10 @@
         "projectId": "6ce2f13f-3f50-4c4f-b29e-2c07e149017b"
       }
     },
-    "owner": "by571"
+    "owner": "by571",
+    "runtimeVersion": "1.0.0",
+    "updates": {
+      "url": "https://u.expo.dev/6ce2f13f-3f50-4c4f-b29e-2c07e149017b"
+    }
   }
 }
