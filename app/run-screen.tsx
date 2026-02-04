@@ -7,12 +7,12 @@ import AsyncStorage from '@react-native-async-storage/async-storage';
 import { activateKeepAwakeAsync, deactivateKeepAwake } from 'expo-keep-awake';
 import FontAwesome from '@expo/vector-icons/FontAwesome';
 
-import { LocationPoint, RunSettings, DEFAULT_SETTINGS, SETTINGS_KEY } from '../types/location';
+import { LocationPoint, RunSettings, DEFAULT_SETTINGS, SETTINGS_KEY, CompletedRun } from '../types/location';
+import { saveCompletedRun, generateRunId } from '../utils/runStorage';
 import {
   calculateTotalDistance,
   isValidLocationUpdate,
   calculatePaceMinPerKm,
-  formatPace,
   formatElapsedTime,
   determinePaceStatus,
 } from '../utils/haversine';
@@ -25,7 +25,14 @@ import {
   getBackgroundLocations,
   clearBackgroundLocations,
 } from '../utils/locationService';
-import { getRandomFeedback, PaceFeedbackType } from '../constants/paceFeedbackPhrases';
+import { getRandomFeedback } from '../constants/paceFeedbackPhrases';
+import {
+  convertDistanceForDisplay,
+  formatPaceForUnit,
+  getUnitLabel,
+  getUnitLabelPlural,
+} from '../utils/unitConversion';
+import ErrorBoundary from '../components/ErrorBoundary';
 
 const COLORS = {
   background: '#0D0D0D',
@@ -81,6 +88,8 @@ export default function RunScreen() {
   const lastFeedbackDistanceRef = useRef(0);
   const lastCheckpointDistanceRef = useRef(0);
   const locationPointsRef = useRef<LocationPoint[]>([]);
+  const totalPausedDurationRef = useRef(0); // ms
+  const lastPauseStartTimeRef = useRef<number | null>(null);
 
   // Load settings on mount
   useEffect(() => {
@@ -197,10 +206,12 @@ export default function RunScreen() {
         runStartTimeRef.current = Date.now();
       }
 
-      // Update elapsed time every second based on actual time difference
+      // Update elapsed time every second based on actual time difference minus paused duration
       timerRef.current = setInterval(() => {
         if (runStartTimeRef.current !== null) {
-          const elapsed = Math.floor((Date.now() - runStartTimeRef.current) / 1000);
+          const elapsed = Math.floor(
+            (Date.now() - runStartTimeRef.current - totalPausedDurationRef.current) / 1000
+          );
           setElapsedSeconds(elapsed);
         }
       }, 1000);
@@ -365,7 +376,8 @@ export default function RunScreen() {
       lastCheckpointDistanceRef.current = nextCheckpoint;
 
       const timeStr = formatElapsedTime(elapsedSeconds);
-      const message = `${nextCheckpoint.toFixed(1)} kilometers. Time: ${timeStr}`;
+      const displayCheckpoint = convertDistanceForDisplay(nextCheckpoint, settings.distanceUnit);
+      const message = `${displayCheckpoint.toFixed(1)} ${getUnitLabelPlural(settings.distanceUnit)}. Time: ${timeStr}`;
 
       Speech.stop().then(() => {
         Speech.speak(message, {
@@ -482,18 +494,48 @@ export default function RunScreen() {
     });
   };
 
+  const handlePauseRun = useCallback(async () => {
+    setRunState('paused');
+    lastPauseStartTimeRef.current = Date.now();
+    await stopLocationTracking();
+    Speech.speak('Run paused.', { language: 'en-US', rate: 0.9 });
+  }, []);
+
+  const handleResumeRun = useCallback(async () => {
+    if (lastPauseStartTimeRef.current !== null) {
+      totalPausedDurationRef.current += Date.now() - lastPauseStartTimeRef.current;
+      lastPauseStartTimeRef.current = null;
+    }
+    await startLocationTracking();
+    setRunState('running');
+    Speech.speak("Let's continue!", { language: 'en-US', rate: 0.9 });
+  }, []);
+
   const handleFinishRun = useCallback(async () => {
     setRunState('finished');
     await stopLocationTracking();
 
+    const run: CompletedRun = {
+      id: generateRunId(),
+      date: new Date().toISOString(),
+      targetDistance: targetDistNum,
+      targetTime: targetTimeNum,
+      actualDistance: totalDistance,
+      actualTime: elapsedSeconds,
+      averagePace: calculatePaceMinPerKm(totalDistance, elapsedSeconds),
+      completedGoal: totalDistance >= targetDistNum,
+    };
+    saveCompletedRun(run);
+
     const finalTime = formatElapsedTime(elapsedSeconds);
-    const message = `Run complete! You covered ${totalDistance.toFixed(2)} kilometers in ${finalTime}.`;
+    const displayDist = convertDistanceForDisplay(totalDistance, settings.distanceUnit);
+    const message = `Run complete! You covered ${displayDist.toFixed(2)} ${getUnitLabelPlural(settings.distanceUnit)} in ${finalTime}.`;
 
     Speech.speak(message, {
       language: 'en-US',
       rate: 0.9,
     });
-  }, [elapsedSeconds, totalDistance]);
+  }, [elapsedSeconds, totalDistance, targetDistNum, targetTimeNum]);
 
   const handleStopRun = useCallback(async () => {
     Alert.alert('Stop Run', 'Are you sure you want to stop?', [
@@ -504,11 +546,24 @@ export default function RunScreen() {
         onPress: async () => {
           setRunState('finished');
           await stopLocationTracking();
+
+          const run: CompletedRun = {
+            id: generateRunId(),
+            date: new Date().toISOString(),
+            targetDistance: targetDistNum,
+            targetTime: targetTimeNum,
+            actualDistance: totalDistance,
+            actualTime: elapsedSeconds,
+            averagePace: calculatePaceMinPerKm(totalDistance, elapsedSeconds),
+            completedGoal: false,
+          };
+          saveCompletedRun(run);
+
           Speech.speak('Run stopped.', { language: 'en-US' });
         },
       },
     ]);
-  }, []);
+  }, [totalDistance, elapsedSeconds, targetDistNum, targetTimeNum]);
 
   const handleGoBack = useCallback(() => {
     stopLocationTracking();
@@ -520,7 +575,15 @@ export default function RunScreen() {
   const progressPercent = Math.min((totalDistance / targetDistNum) * 100, 100);
   const paceStatus = determinePaceStatus(currentPace, targetPaceMinPerKm);
 
+  // Unit-aware display values
+  const unit = settings.distanceUnit;
+  const unitLabel = getUnitLabel(unit);
+  const unitLabelPlural = getUnitLabelPlural(unit);
+  const displayDistance = convertDistanceForDisplay(totalDistance, unit);
+  const displayTargetDist = convertDistanceForDisplay(targetDistNum, unit);
+
   return (
+    <ErrorBoundary fallbackMessage="Something went wrong during your run. Please go back and try again.">
     <View style={styles.container}>
       {/* Header with GPS Status */}
       <View style={styles.header}>
@@ -531,14 +594,14 @@ export default function RunScreen() {
           </Text>
         </View>
         <View style={styles.targetBadge}>
-          <Text style={styles.targetBadgeText}>{formatPace(targetPaceMinPerKm)}/km</Text>
+          <Text style={styles.targetBadgeText}>{formatPaceForUnit(targetPaceMinPerKm, unit)}/{unitLabel}</Text>
         </View>
       </View>
 
       {/* Main Distance Display */}
       <View style={styles.mainMetric}>
-        <Text style={styles.mainMetricValue}>{totalDistance.toFixed(2)}</Text>
-        <Text style={styles.mainMetricUnit}>kilometers</Text>
+        <Text style={styles.mainMetricValue}>{displayDistance.toFixed(2)}</Text>
+        <Text style={styles.mainMetricUnit}>{unitLabelPlural}</Text>
       </View>
 
       {/* Progress Ring/Bar */}
@@ -548,7 +611,7 @@ export default function RunScreen() {
         </View>
         <View style={styles.progressLabels}>
           <Text style={styles.progressPercent}>{progressPercent.toFixed(0)}%</Text>
-          <Text style={styles.progressTarget}>{targetDistNum} km goal</Text>
+          <Text style={styles.progressTarget}>{displayTargetDist.toFixed(1)} {unitLabel} goal</Text>
         </View>
       </View>
 
@@ -562,9 +625,9 @@ export default function RunScreen() {
         <View style={[styles.statCard, styles.statCardAccent]}>
           <FontAwesome name="tachometer" size={18} color={COLORS[paceStatus]} />
           <Text style={[styles.statValue, { color: COLORS[paceStatus] }]}>
-            {formatPace(currentPace)}
+            {formatPaceForUnit(currentPace, unit)}
           </Text>
-          <Text style={styles.statLabel}>PACE /KM</Text>
+          <Text style={styles.statLabel}>PACE /{unitLabel.toUpperCase()}</Text>
         </View>
       </View>
 
@@ -614,13 +677,41 @@ export default function RunScreen() {
         )}
 
         {runState === 'running' && (
-          <Pressable
-            style={({ pressed }) => [styles.stopButton, pressed && styles.stopButtonPressed]}
-            onPress={handleStopRun}
-          >
-            <FontAwesome name="stop" size={18} color="#FFF" />
-            <Text style={styles.stopButtonText}>STOP</Text>
-          </Pressable>
+          <View style={styles.runningButtonRow}>
+            <Pressable
+              style={({ pressed }) => [styles.pauseButton, pressed && styles.buttonPressed]}
+              onPress={handlePauseRun}
+            >
+              <FontAwesome name="pause" size={18} color={COLORS.background} />
+              <Text style={styles.pauseButtonText}>PAUSE</Text>
+            </Pressable>
+            <Pressable
+              style={({ pressed }) => [styles.stopButton, pressed && styles.stopButtonPressed]}
+              onPress={handleStopRun}
+            >
+              <FontAwesome name="stop" size={18} color="#FFF" />
+              <Text style={styles.stopButtonText}>STOP</Text>
+            </Pressable>
+          </View>
+        )}
+
+        {runState === 'paused' && (
+          <View style={styles.runningButtonRow}>
+            <Pressable
+              style={({ pressed }) => [styles.resumeButton, pressed && styles.buttonPressed]}
+              onPress={handleResumeRun}
+            >
+              <FontAwesome name="play" size={18} color={COLORS.background} />
+              <Text style={styles.resumeButtonText}>RESUME</Text>
+            </Pressable>
+            <Pressable
+              style={({ pressed }) => [styles.stopButton, pressed && styles.stopButtonPressed]}
+              onPress={handleStopRun}
+            >
+              <FontAwesome name="stop" size={18} color="#FFF" />
+              <Text style={styles.stopButtonText}>STOP</Text>
+            </Pressable>
+          </View>
         )}
 
         {runState === 'finished' && (
@@ -634,6 +725,7 @@ export default function RunScreen() {
         )}
       </View>
     </View>
+    </ErrorBoundary>
   );
 }
 
@@ -819,6 +911,7 @@ const styles = StyleSheet.create({
     letterSpacing: 2,
   },
   stopButton: {
+    flex: 1,
     backgroundColor: COLORS.danger,
     paddingVertical: 20,
     borderRadius: 16,
@@ -832,6 +925,42 @@ const styles = StyleSheet.create({
   },
   stopButtonText: {
     color: '#FFF',
+    fontSize: 18,
+    fontWeight: '700',
+    letterSpacing: 2,
+  },
+  runningButtonRow: {
+    flexDirection: 'row',
+    gap: 12,
+  },
+  pauseButton: {
+    flex: 1,
+    backgroundColor: COLORS.warning,
+    paddingVertical: 20,
+    borderRadius: 16,
+    flexDirection: 'row',
+    alignItems: 'center',
+    justifyContent: 'center',
+    gap: 12,
+  },
+  pauseButtonText: {
+    color: COLORS.background,
+    fontSize: 18,
+    fontWeight: '700',
+    letterSpacing: 2,
+  },
+  resumeButton: {
+    flex: 1,
+    backgroundColor: COLORS.accent,
+    paddingVertical: 20,
+    borderRadius: 16,
+    flexDirection: 'row',
+    alignItems: 'center',
+    justifyContent: 'center',
+    gap: 12,
+  },
+  resumeButtonText: {
+    color: COLORS.background,
     fontSize: 18,
     fontWeight: '700',
     letterSpacing: 2,

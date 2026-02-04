@@ -1,7 +1,11 @@
-import React, { useState, useMemo } from 'react';
+import React, { useState, useMemo, useCallback } from 'react';
 import { View, Text, TextInput, StyleSheet, Alert, Pressable } from 'react-native';
-import { useRouter, Link } from 'expo-router';
+import { useRouter, Link, useFocusEffect } from 'expo-router';
 import FontAwesome from '@expo/vector-icons/FontAwesome';
+import AsyncStorage from '@react-native-async-storage/async-storage';
+
+import { RunSettings, DEFAULT_SETTINGS, SETTINGS_KEY, DistanceUnit } from '../../types/location';
+import { convertDistanceToKm, getUnitLabel } from '../../utils/unitConversion';
 
 const COLORS = {
   background: '#0D0D0D',
@@ -20,6 +24,23 @@ export default function GoalSetupScreen() {
   const router = useRouter();
   const [distance, setDistance] = useState('');
   const [time, setTime] = useState('');
+  const [distanceUnit, setDistanceUnit] = useState<DistanceUnit>('km');
+
+  useFocusEffect(
+    useCallback(() => {
+      (async () => {
+        try {
+          const saved = await AsyncStorage.getItem(SETTINGS_KEY);
+          if (saved) {
+            const settings: RunSettings = { ...DEFAULT_SETTINGS, ...JSON.parse(saved) };
+            setDistanceUnit(settings.distanceUnit);
+          }
+        } catch {
+          // Use defaults
+        }
+      })();
+    }, [])
+  );
 
   const targetPace = useMemo(() => {
     const distVal = parseFloat(distance);
@@ -29,12 +50,15 @@ export default function GoalSetupScreen() {
       return null;
     }
 
-    const paceMinPerKm = timeVal / distVal;
-    const paceMinutes = Math.floor(paceMinPerKm);
-    const paceSeconds = Math.round((paceMinPerKm - paceMinutes) * 60);
+    // Pace is always displayed in the user's chosen unit
+    const paceMinPerUnit = timeVal / distVal;
+    const paceMinutes = Math.floor(paceMinPerUnit);
+    const paceSeconds = Math.round((paceMinPerUnit - paceMinutes) * 60);
 
     return `${paceMinutes}:${paceSeconds.toString().padStart(2, '0')}`;
   }, [distance, time]);
+
+  const unitLabel = getUnitLabel(distanceUnit);
 
   const startRun = () => {
     const distanceVal = parseFloat(distance);
@@ -50,10 +74,13 @@ export default function GoalSetupScreen() {
       return;
     }
 
+    // Convert to km for internal use
+    const distanceKm = convertDistanceToKm(distanceVal, distanceUnit);
+
     router.push({
       pathname: '/run-screen',
       params: {
-        targetDistance: distanceVal,
+        targetDistance: distanceKm,
         targetTime: timeVal,
       },
     });
@@ -83,7 +110,7 @@ export default function GoalSetupScreen() {
           <Text style={[styles.paceValue, !targetPace && styles.paceValueDim]}>
             {targetPace || '--:--'}
           </Text>
-          <Text style={styles.paceUnit}>/km</Text>
+          <Text style={styles.paceUnit}>/{unitLabel}</Text>
         </View>
         <View style={styles.paceIndicator}>
           <View style={[styles.paceIndicatorBar, targetPace && styles.paceIndicatorActive]} />
@@ -103,7 +130,7 @@ export default function GoalSetupScreen() {
               placeholder=""
               placeholderTextColor={COLORS.textMuted}
             />
-            <Text style={styles.inputUnit}>km</Text>
+            <Text style={styles.inputUnit}>{unitLabel}</Text>
           </View>
           <Text style={styles.inputHint}>e.g. 5</Text>
         </View>

@@ -13,7 +13,7 @@ import AsyncStorage from '@react-native-async-storage/async-storage';
 import { useRouter } from 'expo-router';
 import FontAwesome from '@expo/vector-icons/FontAwesome';
 
-import { RunSettings, DEFAULT_SETTINGS, SETTINGS_KEY } from '../types/location';
+import { RunSettings, DEFAULT_SETTINGS, SETTINGS_KEY, DistanceUnit } from '../types/location';
 
 const COLORS = {
   background: '#0D0D0D',
@@ -42,7 +42,7 @@ export default function SettingsScreen() {
     try {
       const saved = await AsyncStorage.getItem(SETTINGS_KEY);
       if (saved) {
-        const loaded: RunSettings = { ...DEFAULT_SETTINGS, ...JSON.parse(saved) };
+        const loaded = { ...DEFAULT_SETTINGS, ...JSON.parse(saved) };
         setSettings(loaded);
         setFeedbackTimeInterval(loaded.feedbackTimeInterval.toString());
         setFeedbackDistanceInterval(loaded.feedbackDistanceInterval.toString());
@@ -100,6 +100,10 @@ export default function SettingsScreen() {
 
   const setAutoStopOnGoal = (autoStop: boolean) => {
     setSettings((prev) => ({ ...prev, autoStopOnGoal: autoStop }));
+  };
+
+  const setUnit = (unit: DistanceUnit) => {
+    setSettings((prev) => ({ ...prev, distanceUnit: unit }));
   };
 
   return (
@@ -281,6 +285,54 @@ export default function SettingsScreen() {
               ]}
             >
               Keep Going
+            </Text>
+          </TouchableOpacity>
+        </View>
+      </View>
+
+      {/* Distance Unit */}
+      <View style={styles.section}>
+        <View style={styles.sectionHeader}>
+          <FontAwesome name="exchange" size={16} color={COLORS.accent} />
+          <Text style={styles.sectionTitle}>DISTANCE UNIT</Text>
+        </View>
+        <Text style={styles.description}>
+          Choose your preferred unit for distance and pace.
+        </Text>
+
+        <View style={styles.toggleContainer}>
+          <TouchableOpacity
+            style={[
+              styles.toggleOption,
+              settings.distanceUnit === 'km' && styles.toggleSelected,
+            ]}
+            onPress={() => setUnit('km')}
+            activeOpacity={0.7}
+          >
+            <Text
+              style={[
+                styles.toggleText,
+                settings.distanceUnit === 'km' && styles.toggleTextSelected,
+              ]}
+            >
+              Kilometers
+            </Text>
+          </TouchableOpacity>
+          <TouchableOpacity
+            style={[
+              styles.toggleOption,
+              settings.distanceUnit === 'miles' && styles.toggleSelected,
+            ]}
+            onPress={() => setUnit('miles')}
+            activeOpacity={0.7}
+          >
+            <Text
+              style={[
+                styles.toggleText,
+                settings.distanceUnit === 'miles' && styles.toggleTextSelected,
+              ]}
+            >
+              Miles
             </Text>
           </TouchableOpacity>
         </View>
