@@ -30,12 +30,12 @@
 
 ## v1.1 — Post-launch polish
 
-- [ ] Add pause/resume functionality during a run
-- [ ] Persist run data so it survives app crashes
-- [ ] Add run history screen (list of past runs with distance, time, pace)
-- [ ] Support miles as a unit option (in addition to km)
-- [ ] Add error boundaries with user-friendly messages instead of silent failures
-- [ ] Update packages to match Expo SDK expectations (`npx expo install --fix`)
+- [x] Add pause/resume functionality during a run
+- [x] Persist run data so it survives app crashes
+- [x] Add run history screen (list of past runs with distance, time, pace)
+- [x] Support miles as a unit option (in addition to km)
+- [x] Add error boundaries with user-friendly messages instead of silent failures
+- [x] Update packages to match Expo SDK expectations (`npx expo install --fix`)
 
 ---
 
