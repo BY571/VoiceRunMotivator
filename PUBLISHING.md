@@ -18,6 +18,8 @@ Use this checklist to track your progress:
   - [ ] Take 2-8 screenshots of the app
   - [x] Create privacy policy and host it (GitHub Pages works)
     - **URL:** https://by571.github.io/VoiceRunMotivator/privacy-policy.html
+  - [x] Feature graphic (1024x500): `assets/images/feature-graphic.png`
+  - [x] Store listing copy: `store-listing.md`
 
 - [ ] **4. Build for Production**
   - [ ] Build AAB: `npx eas build --platform android --profile production`
