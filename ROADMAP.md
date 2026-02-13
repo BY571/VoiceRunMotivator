@@ -7,7 +7,7 @@
 - [x] Remove duplicate permissions from app.json
 - [x] Remove debug UI and console.log statements
 - [x] Create privacy policy
-- [ ] Host privacy policy at a public URL (push to GitHub, use `https://github.com/BY571/VoiceRunMotivator/blob/main/PRIVACY_POLICY.md`)
+- [x] Host privacy policy at a public URL: https://by571.github.io/VoiceRunMotivator/privacy-policy.html
 - [ ] Take 4–8 screenshots on a real Android device (goal screen, active run, settings)
 - [ ] Create a Google Play Developer account ($25 one-time) — https://play.google.com/console/signup
 - [ ] Build production AAB: `npx eas build --platform android --profile production`
