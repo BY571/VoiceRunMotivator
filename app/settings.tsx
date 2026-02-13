@@ -14,6 +14,7 @@ import { useRouter } from 'expo-router';
 import FontAwesome from '@expo/vector-icons/FontAwesome';
 
 import { RunSettings, DEFAULT_SETTINGS, SETTINGS_KEY, DistanceUnit } from '../types/location';
+import { getUnitLabel } from '../utils/unitConversion';
 
 const COLORS = {
   background: '#0D0D0D',
@@ -69,12 +70,12 @@ export default function SettingsScreen() {
     }
 
     if (isNaN(distanceIntervalNum) || distanceIntervalNum < 0.1) {
-      Alert.alert('Error', 'Distance interval must be at least 0.1 km');
+      Alert.alert('Error', `Distance interval must be at least 0.1 ${getUnitLabel(settings.distanceUnit)}`);
       return;
     }
 
     if (isNaN(checkpointNum) || checkpointNum < 0.1) {
-      Alert.alert('Error', 'Checkpoint interval must be at least 0.1 km');
+      Alert.alert('Error', `Checkpoint interval must be at least 0.1 ${getUnitLabel(settings.distanceUnit)}`);
       return;
     }
 
@@ -205,9 +206,13 @@ export default function SettingsScreen() {
                 placeholder="0.5"
                 placeholderTextColor={COLORS.textMuted}
               />
-              <Text style={styles.inputUnit}>km</Text>
+              <Text style={styles.inputUnit}>{getUnitLabel(settings.distanceUnit)}</Text>
             </View>
-            <Text style={styles.cardHint}>e.g., 0.5 = hear updates every 500 meters</Text>
+            <Text style={styles.cardHint}>
+              {settings.distanceUnit === 'km' 
+                ? 'e.g., 0.5 = hear updates every 500 meters'
+                : 'e.g., 0.5 = hear updates every half mile'}
+            </Text>
           </>
         )}
       </View>
@@ -227,7 +232,7 @@ export default function SettingsScreen() {
             placeholder="1.0"
             placeholderTextColor={COLORS.textMuted}
           />
-          <Text style={styles.inputUnit}>km</Text>
+          <Text style={styles.inputUnit}>{getUnitLabel(settings.distanceUnit)}</Text>
         </View>
         <Text style={styles.cardHint}>Announces elapsed time at each milestone</Text>
       </View>
