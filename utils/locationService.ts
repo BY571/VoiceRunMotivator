@@ -2,6 +2,10 @@ import * as Location from 'expo-location';
 import * as TaskManager from 'expo-task-manager';
 import AsyncStorage from '@react-native-async-storage/async-storage';
 import { LocationPoint } from '../types/location';
+import { calculateTotalDistance, calculatePaceMinPerKm, determinePaceStatus } from './haversine';
+import { getBackgroundRunState, saveBackgroundRunState } from './backgroundRunState';
+import { sendPaceNotification } from './notificationService';
+import { getRandomFeedback } from '../constants/paceFeedbackPhrases';
 
 export const LOCATION_TASK_NAME = 'pacemaker-background-location';
 export const BACKGROUND_LOCATIONS_KEY = 'pacemaker-background-locations';
@@ -194,10 +198,65 @@ export function defineBackgroundTask(): void {
           // Keep only last 1000 points to prevent storage overflow
           const trimmedPoints = allPoints.slice(-1000);
           await AsyncStorage.setItem(BACKGROUND_LOCATIONS_KEY, JSON.stringify(trimmedPoints));
+
+          // Send pace notification if app is backgrounded and interval is reached
+          await maybeSendPaceNotification(trimmedPoints);
         } catch (e) {
           console.error('Error storing background location:', e);
         }
       }
     }
   );
+}
+
+/**
+ * Check if a pace notification should be sent from the background task.
+ * Only fires when the app is NOT in the foreground and a feedback interval has elapsed.
+ */
+async function maybeSendPaceNotification(allPoints: LocationPoint[]): Promise<void> {
+  try {
+    const runState = await getBackgroundRunState();
+    if (!runState || runState.isAppInForeground) {
+      return; // No active run or app is foregrounded (speech handles it)
+    }
+
+    const totalDistance = calculateTotalDistance(allPoints);
+    const elapsedMs = Date.now() - runState.startTime - runState.totalPausedDuration;
+    const elapsedSeconds = Math.floor(elapsedMs / 1000);
+
+    if (elapsedSeconds <= 0 || totalDistance <= 0) {
+      return;
+    }
+
+    // Check if feedback interval has been reached
+    let shouldNotify = false;
+    if (runState.settings.feedbackTriggerMode === 'time') {
+      const secondsSinceLastFeedback = elapsedSeconds - runState.lastFeedbackTime;
+      shouldNotify = secondsSinceLastFeedback >= runState.settings.feedbackTimeInterval;
+    } else {
+      const distanceSinceLastFeedback = totalDistance - runState.lastFeedbackDistance;
+      shouldNotify = distanceSinceLastFeedback >= runState.settings.feedbackDistanceInterval;
+    }
+
+    if (!shouldNotify) {
+      return;
+    }
+
+    // Calculate pace and send notification
+    const currentPace = calculatePaceMinPerKm(totalDistance, elapsedSeconds);
+    const paceType = determinePaceStatus(currentPace, runState.targetPace);
+    const message = getRandomFeedback(paceType);
+
+    await sendPaceNotification(message);
+
+    // Update the run state with latest feedback markers
+    await saveBackgroundRunState({
+      ...runState,
+      lastFeedbackTime: elapsedSeconds,
+      lastFeedbackDistance: totalDistance,
+      totalDistance,
+    });
+  } catch (e) {
+    console.error('Error in background pace notification:', e);
+  }
 }

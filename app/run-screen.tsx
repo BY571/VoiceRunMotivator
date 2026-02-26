@@ -32,6 +32,13 @@ import {
   getUnitLabel,
   getUnitLabelPlural,
 } from '../utils/unitConversion';
+import { initializeNotifications } from '../utils/notificationService';
+import {
+  saveBackgroundRunState,
+  getBackgroundRunState,
+  clearBackgroundRunState,
+  updateBackgroundRunField,
+} from '../utils/backgroundRunState';
 import ErrorBoundary from '../components/ErrorBoundary';
 
 const COLORS = {
@@ -91,7 +98,7 @@ export default function RunScreen() {
   const totalPausedDurationRef = useRef(0); // ms
   const lastPauseStartTimeRef = useRef<number | null>(null);
 
-  // Load settings on mount
+  // Load settings on mount and initialize notifications
   useEffect(() => {
     (async () => {
       try {
@@ -102,6 +109,8 @@ export default function RunScreen() {
       } catch {
         // Use defaults
       }
+      // Initialize notifications for background pace updates
+      await initializeNotifications();
     })();
   }, []);
 
@@ -240,6 +249,9 @@ export default function RunScreen() {
         setTotalDistance(newDistance);
         setGpsStatus('acquired');
 
+        // Sync distance to background run state so background task has fresh data
+        updateBackgroundRunField('totalDistance', newDistance);
+
         // Check if run is complete (only auto-stop if setting enabled)
         if (newDistance >= targetDistNum && settings.autoStopOnGoal) {
           handleFinishRun();
@@ -259,13 +271,30 @@ export default function RunScreen() {
     if (runState !== 'running') return;
 
     const handleAppStateChange = async (nextAppState: AppStateStatus) => {
+      // Update foreground flag so background task knows whether to send notifications
+      if (nextAppState === 'active') {
+        await updateBackgroundRunField('isAppInForeground', true);
+      } else if (nextAppState === 'background') {
+        // Sync current feedback markers so background task doesn't duplicate a recent notification
+        const bgState = await getBackgroundRunState();
+        if (bgState) {
+          await saveBackgroundRunState({
+            ...bgState,
+            isAppInForeground: false,
+            lastFeedbackTime: lastFeedbackTimeRef.current,
+            lastFeedbackDistance: lastFeedbackDistanceRef.current,
+            totalPausedDuration: totalPausedDurationRef.current,
+          });
+        }
+      }
+
       if (nextAppState === 'active') {
         // App came to foreground - retrieve background locations
         const backgroundPoints = await getBackgroundLocations();
 
         // Get current elapsed time (always accurate due to timestamp-based calculation)
         const currentElapsed = runStartTimeRef.current
-          ? Math.floor((Date.now() - runStartTimeRef.current) / 1000)
+          ? Math.floor((Date.now() - runStartTimeRef.current - totalPausedDurationRef.current) / 1000)
           : elapsedSeconds;
 
         let newDistance = totalDistance;
@@ -484,6 +513,18 @@ export default function RunScreen() {
       setGpsStatus('acquired');
     }
 
+    // Save initial background run state for the background task
+    await saveBackgroundRunState({
+      startTime: startTime,
+      targetPace: targetPaceMinPerKm,
+      settings,
+      lastFeedbackTime: 0,
+      lastFeedbackDistance: 0,
+      totalDistance: 0,
+      isAppInForeground: true,
+      totalPausedDuration: 0,
+    });
+
     await startLocationTracking();
     setRunState('running');
 
@@ -498,6 +539,7 @@ export default function RunScreen() {
     setRunState('paused');
     lastPauseStartTimeRef.current = Date.now();
     await stopLocationTracking();
+    await updateBackgroundRunField('isAppInForeground', true); // No notifications while paused
     Speech.speak('Run paused.', { language: 'en-US', rate: 0.9 });
   }, []);
 
@@ -506,6 +548,7 @@ export default function RunScreen() {
       totalPausedDurationRef.current += Date.now() - lastPauseStartTimeRef.current;
       lastPauseStartTimeRef.current = null;
     }
+    await updateBackgroundRunField('totalPausedDuration', totalPausedDurationRef.current);
     await startLocationTracking();
     setRunState('running');
     Speech.speak("Let's continue!", { language: 'en-US', rate: 0.9 });
@@ -514,6 +557,7 @@ export default function RunScreen() {
   const handleFinishRun = useCallback(async () => {
     setRunState('finished');
     await stopLocationTracking();
+    await clearBackgroundRunState();
 
     const run: CompletedRun = {
       id: generateRunId(),
@@ -546,6 +590,7 @@ export default function RunScreen() {
         onPress: async () => {
           setRunState('finished');
           await stopLocationTracking();
+          await clearBackgroundRunState();
 
           const run: CompletedRun = {
             id: generateRunId(),
