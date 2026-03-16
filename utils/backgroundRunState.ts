@@ -1,5 +1,5 @@
 import AsyncStorage from '@react-native-async-storage/async-storage';
-import { RunSettings } from '../types/location';
+import { RunSettings, LocationPoint } from '../types/location';
 
 const BG_RUN_STATE_KEY = 'pacemaker-bg-run-state';
 
@@ -12,6 +12,7 @@ export interface BackgroundRunState {
   totalDistance: number;           // km accumulated so far
   isAppInForeground: boolean;
   totalPausedDuration: number;    // ms of total paused time
+  lastLocationPoint: LocationPoint | null; // last known valid GPS point
 }
 
 export async function saveBackgroundRunState(
@@ -52,5 +53,14 @@ export async function updateBackgroundRunField<K extends keyof BackgroundRunStat
   if (state) {
     state[key] = value;
     await saveBackgroundRunState(state);
+  }
+}
+
+export async function updateBackgroundRunFields(
+  updates: Partial<BackgroundRunState>
+): Promise<void> {
+  const state = await getBackgroundRunState();
+  if (state) {
+    await saveBackgroundRunState({ ...state, ...updates });
   }
 }

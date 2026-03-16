@@ -14,6 +14,8 @@ export async function initializeNotifications(): Promise<boolean> {
       shouldShowAlert: false, // Don't show when foregrounded — speech handles it
       shouldPlaySound: false,
       shouldSetBadge: false,
+      shouldShowBanner: false,
+      shouldShowList: false,
     }),
   });
 

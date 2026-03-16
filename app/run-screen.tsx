@@ -38,6 +38,7 @@ import {
   getBackgroundRunState,
   clearBackgroundRunState,
   updateBackgroundRunField,
+  updateBackgroundRunFields,
 } from '../utils/backgroundRunState';
 import ErrorBoundary from '../components/ErrorBoundary';
 
@@ -249,8 +250,8 @@ export default function RunScreen() {
         setTotalDistance(newDistance);
         setGpsStatus('acquired');
 
-        // Sync distance to background run state so background task has fresh data
-        updateBackgroundRunField('totalDistance', newDistance);
+        // Sync distance and last point to background run state
+        updateBackgroundRunFields({ totalDistance: newDistance, lastLocationPoint: point });
 
         // Check if run is complete (only auto-stop if setting enabled)
         if (newDistance >= targetDistNum && settings.autoStopOnGoal) {
@@ -275,15 +276,17 @@ export default function RunScreen() {
       if (nextAppState === 'active') {
         await updateBackgroundRunField('isAppInForeground', true);
       } else if (nextAppState === 'background') {
-        // Sync current feedback markers so background task doesn't duplicate a recent notification
+        // Sync current state so background task has accurate starting point
         const bgState = await getBackgroundRunState();
         if (bgState) {
+          const lastPoint = locationPointsRef.current[locationPointsRef.current.length - 1] || null;
           await saveBackgroundRunState({
             ...bgState,
             isAppInForeground: false,
             lastFeedbackTime: lastFeedbackTimeRef.current,
             lastFeedbackDistance: lastFeedbackDistanceRef.current,
             totalPausedDuration: totalPausedDurationRef.current,
+            lastLocationPoint: lastPoint,
           });
         }
       }
@@ -295,9 +298,9 @@ export default function RunScreen() {
         // Get current elapsed time (always accurate due to timestamp-based calculation)
         const currentElapsed = runStartTimeRef.current
           ? Math.floor((Date.now() - runStartTimeRef.current - totalPausedDurationRef.current) / 1000)
-          : elapsedSeconds;
+          : 0;
 
-        let newDistance = totalDistance;
+        let newDistance = calculateTotalDistance(locationPointsRef.current);
 
         if (backgroundPoints.length > 0) {
           // Filter and add valid points
@@ -350,7 +353,7 @@ export default function RunScreen() {
     return () => {
       subscription.remove();
     };
-  }, [runState, targetDistNum, targetPaceMinPerKm, elapsedSeconds, totalDistance, settings.autoStopOnGoal]);
+  }, [runState, targetDistNum, targetPaceMinPerKm, settings.autoStopOnGoal]);
 
   // Voice feedback logic
   useEffect(() => {
@@ -497,6 +500,17 @@ export default function RunScreen() {
   const startRun = async () => {
     setGpsStatus('searching');
 
+    // Configure audio session so speech works in silent mode and background
+    try {
+      await Audio.setAudioModeAsync({
+        playsInSilentModeIOS: true,
+        staysActiveInBackground: true,
+        shouldDuckAndroid: true,
+      });
+    } catch {
+      // Non-critical — continue without
+    }
+
     // Clear any old background locations
     await clearBackgroundLocations();
 
@@ -523,6 +537,7 @@ export default function RunScreen() {
       totalDistance: 0,
       isAppInForeground: true,
       totalPausedDuration: 0,
+      lastLocationPoint: initialPos,
     });
 
     await startLocationTracking();
@@ -559,27 +574,33 @@ export default function RunScreen() {
     await stopLocationTracking();
     await clearBackgroundRunState();
 
+    // Use refs for current values to avoid stale closure
+    const actualDistance = calculateTotalDistance(locationPointsRef.current);
+    const actualTime = runStartTimeRef.current
+      ? Math.floor((Date.now() - runStartTimeRef.current - totalPausedDurationRef.current) / 1000)
+      : 0;
+
     const run: CompletedRun = {
       id: generateRunId(),
       date: new Date().toISOString(),
       targetDistance: targetDistNum,
       targetTime: targetTimeNum,
-      actualDistance: totalDistance,
-      actualTime: elapsedSeconds,
-      averagePace: calculatePaceMinPerKm(totalDistance, elapsedSeconds),
-      completedGoal: totalDistance >= targetDistNum,
+      actualDistance,
+      actualTime,
+      averagePace: calculatePaceMinPerKm(actualDistance, actualTime),
+      completedGoal: actualDistance >= targetDistNum,
     };
     saveCompletedRun(run);
 
-    const finalTime = formatElapsedTime(elapsedSeconds);
-    const displayDist = convertDistanceForDisplay(totalDistance, settings.distanceUnit);
+    const finalTime = formatElapsedTime(actualTime);
+    const displayDist = convertDistanceForDisplay(actualDistance, settings.distanceUnit);
     const message = `Run complete! You covered ${displayDist.toFixed(2)} ${getUnitLabelPlural(settings.distanceUnit)} in ${finalTime}.`;
 
     Speech.speak(message, {
       language: 'en-US',
       rate: 0.9,
     });
-  }, [elapsedSeconds, totalDistance, targetDistNum, targetTimeNum]);
+  }, [targetDistNum, targetTimeNum, settings.distanceUnit]);
 
   const handleStopRun = useCallback(async () => {
     Alert.alert('Stop Run', 'Are you sure you want to stop?', [
@@ -592,14 +613,20 @@ export default function RunScreen() {
           await stopLocationTracking();
           await clearBackgroundRunState();
 
+          // Use refs for current values to avoid stale closure
+          const actualDistance = calculateTotalDistance(locationPointsRef.current);
+          const actualTime = runStartTimeRef.current
+            ? Math.floor((Date.now() - runStartTimeRef.current - totalPausedDurationRef.current) / 1000)
+            : 0;
+
           const run: CompletedRun = {
             id: generateRunId(),
             date: new Date().toISOString(),
             targetDistance: targetDistNum,
             targetTime: targetTimeNum,
-            actualDistance: totalDistance,
-            actualTime: elapsedSeconds,
-            averagePace: calculatePaceMinPerKm(totalDistance, elapsedSeconds),
+            actualDistance,
+            actualTime,
+            averagePace: calculatePaceMinPerKm(actualDistance, actualTime),
             completedGoal: false,
           };
           saveCompletedRun(run);
@@ -608,7 +635,7 @@ export default function RunScreen() {
         },
       },
     ]);
-  }, [totalDistance, elapsedSeconds, targetDistNum, targetTimeNum]);
+  }, [targetDistNum, targetTimeNum]);
 
   const handleGoBack = useCallback(() => {
     stopLocationTracking();

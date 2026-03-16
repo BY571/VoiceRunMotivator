@@ -1,9 +1,10 @@
 import * as Location from 'expo-location';
 import * as TaskManager from 'expo-task-manager';
+import * as Speech from 'expo-speech';
 import AsyncStorage from '@react-native-async-storage/async-storage';
 import { LocationPoint } from '../types/location';
-import { calculateTotalDistance, calculatePaceMinPerKm, determinePaceStatus } from './haversine';
-import { getBackgroundRunState, saveBackgroundRunState } from './backgroundRunState';
+import { isValidLocationUpdate, haversineDistance, calculatePaceMinPerKm, determinePaceStatus } from './haversine';
+import { getBackgroundRunState, saveBackgroundRunState, BackgroundRunState } from './backgroundRunState';
 import { sendPaceNotification } from './notificationService';
 import { getRandomFeedback } from '../constants/paceFeedbackPhrases';
 
@@ -190,19 +191,51 @@ export function defineBackgroundTask(): void {
           locationEventEmitter.emit(point);
         });
 
-        // Also store in AsyncStorage for when app is backgrounded
+        // Store in AsyncStorage for when app returns to foreground
         try {
           const existing = await AsyncStorage.getItem(BACKGROUND_LOCATIONS_KEY);
           const existingPoints: LocationPoint[] = existing ? JSON.parse(existing) : [];
           const allPoints = [...existingPoints, ...newPoints];
-          // Keep only last 1000 points to prevent storage overflow
           const trimmedPoints = allPoints.slice(-1000);
           await AsyncStorage.setItem(BACKGROUND_LOCATIONS_KEY, JSON.stringify(trimmedPoints));
-
-          // Send pace notification if app is backgrounded and interval is reached
-          await maybeSendPaceNotification(trimmedPoints);
         } catch (e) {
           console.error('Error storing background location:', e);
+        }
+
+        // Calculate incremental distance and handle background notifications
+        try {
+          const runState = await getBackgroundRunState();
+          if (!runState || runState.isAppInForeground) return;
+
+          // Filter valid points and calculate incremental distance
+          let lastPoint = runState.lastLocationPoint;
+          let incrementalDistance = 0;
+
+          for (const point of newPoints) {
+            if (isValidLocationUpdate(point, lastPoint)) {
+              if (lastPoint) {
+                incrementalDistance += haversineDistance(
+                  lastPoint.latitude, lastPoint.longitude,
+                  point.latitude, point.longitude
+                );
+              }
+              lastPoint = point;
+            }
+          }
+
+          const newTotalDistance = runState.totalDistance + incrementalDistance;
+
+          const updatedState: BackgroundRunState = {
+            ...runState,
+            totalDistance: newTotalDistance,
+            lastLocationPoint: lastPoint,
+          };
+          await saveBackgroundRunState(updatedState);
+
+          // Check if pace feedback should be sent
+          await maybeSendPaceNotification(updatedState);
+        } catch (e) {
+          console.error('Error in background location processing:', e);
         }
       }
     }
@@ -210,51 +243,56 @@ export function defineBackgroundTask(): void {
 }
 
 /**
- * Check if a pace notification should be sent from the background task.
+ * Check if pace feedback should be sent from the background task.
+ * Uses voice (Speech) for audible feedback plus a notification as visual backup.
  * Only fires when the app is NOT in the foreground and a feedback interval has elapsed.
  */
-async function maybeSendPaceNotification(allPoints: LocationPoint[]): Promise<void> {
+async function maybeSendPaceNotification(runState: BackgroundRunState): Promise<void> {
   try {
-    const runState = await getBackgroundRunState();
-    if (!runState || runState.isAppInForeground) {
-      return; // No active run or app is foregrounded (speech handles it)
-    }
+    if (runState.isAppInForeground) return;
 
-    const totalDistance = calculateTotalDistance(allPoints);
+    const totalDistance = runState.totalDistance;
     const elapsedMs = Date.now() - runState.startTime - runState.totalPausedDuration;
     const elapsedSeconds = Math.floor(elapsedMs / 1000);
 
-    if (elapsedSeconds <= 0 || totalDistance <= 0) {
-      return;
-    }
+    if (elapsedSeconds <= 0 || totalDistance <= 0) return;
 
     // Check if feedback interval has been reached
     let shouldNotify = false;
     if (runState.settings.feedbackTriggerMode === 'time') {
-      const secondsSinceLastFeedback = elapsedSeconds - runState.lastFeedbackTime;
-      shouldNotify = secondsSinceLastFeedback >= runState.settings.feedbackTimeInterval;
+      shouldNotify = (elapsedSeconds - runState.lastFeedbackTime) >= runState.settings.feedbackTimeInterval;
     } else {
-      const distanceSinceLastFeedback = totalDistance - runState.lastFeedbackDistance;
-      shouldNotify = distanceSinceLastFeedback >= runState.settings.feedbackDistanceInterval;
+      shouldNotify = (totalDistance - runState.lastFeedbackDistance) >= runState.settings.feedbackDistanceInterval;
     }
 
-    if (!shouldNotify) {
-      return;
-    }
+    if (!shouldNotify) return;
 
-    // Calculate pace and send notification
+    // Calculate pace and build feedback message
     const currentPace = calculatePaceMinPerKm(totalDistance, elapsedSeconds);
     const paceType = determinePaceStatus(currentPace, runState.targetPace);
     const message = getRandomFeedback(paceType);
 
+    // Voice feedback (works on iOS with audio background mode + Android foreground service)
+    try {
+      await Speech.stop();
+      Speech.speak(message, {
+        language: 'en-US',
+        rate: 0.9,
+        pitch: 1.0,
+        volume: 1.0,
+      });
+    } catch {
+      // Speech may not be available in headless context — notification handles it
+    }
+
+    // Also send notification as visual/vibration backup
     await sendPaceNotification(message);
 
-    // Update the run state with latest feedback markers
+    // Update feedback markers
     await saveBackgroundRunState({
       ...runState,
       lastFeedbackTime: elapsedSeconds,
       lastFeedbackDistance: totalDistance,
-      totalDistance,
     });
   } catch (e) {
     console.error('Error in background pace notification:', e);
