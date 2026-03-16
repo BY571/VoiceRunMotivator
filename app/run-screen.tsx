@@ -1007,7 +1007,7 @@ const styles = StyleSheet.create({
   },
   pauseButton: {
     flex: 1,
-    backgroundColor: COLORS.warning,
+    backgroundColor: COLORS.accent,
     paddingVertical: 20,
     borderRadius: 16,
     flexDirection: 'row',
